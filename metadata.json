@@ -1,0 +1,8 @@
+{
+  "name": "New Mekongsinsup",
+  "description": "แม่โขงสินทรัพย์ (Mekong Sinsup) - เกษตรกรรมอัจฉริยะเพื่ออนาคต",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
