@@ -9,11 +9,19 @@ import {
   fetchSalesAndServicesSheetData, SaleServiceTransaction,
   fetchDailyCashReportsSheetData, DailyCashReport,
   fetchWorkerLaborSheetData, WorkerLaborRecord,
-  getFallbackFuelExpensesData, FuelExpenseRecord,
-  getFallbackElectricityExpensesData, ElectricityExpenseRecord,
-  getFallbackMachineMaintenanceData, MachineMaintenanceRecord,
-  getFallbackCapExData, CapExInvestmentRecord
+  fetchFuelExpensesSheetData, FuelExpenseRecord,
+  fetchElectricityExpensesSheetData, ElectricityExpenseRecord,
+  fetchMachineMaintenanceSheetData, MachineMaintenanceRecord,
+  fetchCapExSheetData, CapExInvestmentRecord,
+  saveCategoryRecords
 } from '../services/dashboardService';
+
+import {
+  syncAllWorkerLaborToSheet,
+  syncAllFuelExpensesToSheet,
+  syncAllMaintenanceExpensesToSheet,
+  syncAllCapexToSheet
+} from '../services/googleSheetsService';
 
 import ExecutiveSummaryView from './erp/ExecutiveSummaryView';
 import IncomeHubView from './erp/IncomeHubView';
@@ -60,24 +68,30 @@ export default function ErpDashboard() {
         branData,
         salesData,
         cashData,
-        laborData
+        laborData,
+        fuelData,
+        elecData,
+        maintData,
+        capexData
       ] = await Promise.all([
         fetchBranStockSheetData(),
         fetchSalesAndServicesSheetData(),
         fetchDailyCashReportsSheetData(),
-        fetchWorkerLaborSheetData()
+        fetchWorkerLaborSheetData(),
+        fetchFuelExpensesSheetData(),
+        fetchElectricityExpensesSheetData(),
+        fetchMachineMaintenanceSheetData(),
+        fetchCapExSheetData()
       ]);
 
       setBranStock(branData);
       setSalesServices(salesData);
       setDailyCashReports(cashData);
       setWorkerLabor(laborData);
-
-      // Fallback/Local datasets for Fuel, Electricity, Maintenance, CapEx
-      setFuelExpenses(getFallbackFuelExpensesData());
-      setElectricityExpenses(getFallbackElectricityExpensesData());
-      setMaintenanceExpenses(getFallbackMachineMaintenanceData());
-      setCapexInvestments(getFallbackCapExData());
+      setFuelExpenses(fuelData);
+      setElectricityExpenses(elecData);
+      setMaintenanceExpenses(maintData);
+      setCapexInvestments(capexData);
 
       setLastSyncTime(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     } catch (error) {
@@ -100,8 +114,33 @@ export default function ErpDashboard() {
     setSalesServices(prev => [newItem, ...prev]);
   };
 
+  const handleUpdateWorkerLabor = useCallback((recs: WorkerLaborRecord[]) => {
+    setWorkerLabor(recs);
+    saveCategoryRecords('worker_labor', recs);
+    syncAllWorkerLaborToSheet(recs).catch(err => console.warn('Sync labor failed:', err));
+  }, []);
+
+  const handleUpdateFuelExpenses = useCallback((recs: FuelExpenseRecord[]) => {
+    setFuelExpenses(recs);
+    saveCategoryRecords('fuel', recs);
+    syncAllFuelExpensesToSheet(recs).catch(err => console.warn('Sync fuel failed:', err));
+  }, []);
+
   const handleUpdateElectricityRecords = useCallback((recs: ElectricityExpenseRecord[]) => {
     setElectricityExpenses(recs);
+    saveCategoryRecords('electricity', recs);
+  }, []);
+
+  const handleUpdateMaintenanceExpenses = useCallback((recs: MachineMaintenanceRecord[]) => {
+    setMaintenanceExpenses(recs);
+    saveCategoryRecords('maintenance', recs);
+    syncAllMaintenanceExpensesToSheet(recs).catch(err => console.warn('Sync maintenance failed:', err));
+  }, []);
+
+  const handleUpdateCapexInvestments = useCallback((recs: CapExInvestmentRecord[]) => {
+    setCapexInvestments(recs);
+    saveCategoryRecords('capex', recs);
+    syncAllCapexToSheet(recs).catch(err => console.warn('Sync capex failed:', err));
   }, []);
 
   return (
@@ -250,7 +289,11 @@ export default function ErpDashboard() {
           capexInvestments={capexInvestments}
           onRefresh={loadAllErpSheetData}
           loading={loading}
+          onUpdateWorkerLabor={handleUpdateWorkerLabor}
+          onUpdateFuelExpenses={handleUpdateFuelExpenses}
           onUpdateElectricityRecords={handleUpdateElectricityRecords}
+          onUpdateMaintenanceExpenses={handleUpdateMaintenanceExpenses}
+          onUpdateCapexInvestments={handleUpdateCapexInvestments}
         />
       )}
 

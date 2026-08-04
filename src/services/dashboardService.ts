@@ -1010,7 +1010,114 @@ function getFallbackDailyCashReportsData(): DailyCashReport[] {
   ];
 }
 
-// 2.1 Worker Labor Sheet Interface & Fetcher (gid=264764262) - Twice a Month Pay Cut-off (1st & 16th)
+export const EXPENSES_SPREADSHEET_ID = '1Xxr1Nz38gxRR-nQN9Zqq0zKSPb4gRkujTuKxHppVfS8';
+
+// Local persistence helpers for deletion & custom edits
+export function parseNumber(val: any): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  const str = val.toString().replace(/[^0-9.-]/g, '');
+  const parsed = parseFloat(str);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+export function normalizeBillingPeriod(raw: string): string {
+  if (!raw) return '01/2569';
+  const str = raw.trim();
+  if (/^\d{1,2}\/\d{4}$/.test(str)) {
+    const [m, y] = str.split('/');
+    return `${m.padStart(2, '0')}/${y}`;
+  }
+  
+  const monthMap: Record<string, string> = {
+    jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+    'ม.ค.': '01', 'ก.พ.': '02', 'มี.ค.': '03', 'เม.ย.': '04', 'พ.ค.': '05', 'มิ.ย.': '06',
+    'ก.ค.': '07', 'ส.ค.': '08', 'ก.ย.': '09', 'ต.ค.': '10', 'พ.ย.': '11', 'ธ.ค.': '12'
+  };
+
+  const lower = str.toLowerCase();
+  for (const [key, num] of Object.entries(monthMap)) {
+    if (lower.includes(key)) {
+      const yearMatch = str.match(/\d{4}/);
+      const year = yearMatch ? yearMatch[0] : '2569';
+      return `${num}/${year}`;
+    }
+  }
+
+  const parts = str.split(/[/.-]/);
+  if (parts.length >= 2) {
+    const p1 = parseInt(parts[0], 10);
+    const p2 = parseInt(parts[1], 10);
+    const p3 = parts[2] ? parseInt(parts[2], 10) : NaN;
+
+    if (!isNaN(p1) && !isNaN(p2)) {
+      if (p1 > 31) {
+        return `${String(p2).padStart(2, '0')}/${p1}`;
+      }
+      if (!isNaN(p3)) {
+        return `${String(p2).padStart(2, '0')}/${p3}`;
+      }
+      return `${String(p1).padStart(2, '0')}/${p2}`;
+    }
+  }
+
+  return str;
+}
+
+export function cleanRowKeys(row: Record<string, any>): Record<string, any> {
+  const cleanObj: Record<string, any> = {};
+  if (!row) return cleanObj;
+  for (const rawKey of Object.keys(row)) {
+    const key = rawKey.replace(/[\r\n"']/g, '').trim();
+    cleanObj[key] = row[rawKey];
+  }
+  return cleanObj;
+}
+
+export function getDeletedRecordIds(category: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(`mekong_deleted_ids_${category}`);
+    if (raw) {
+      return new Set(JSON.parse(raw));
+    }
+  } catch (err) {
+    console.warn(`Error reading deleted ids for ${category}:`, err);
+  }
+  return new Set();
+}
+
+export function markRecordDeleted(category: string, id: string): void {
+  try {
+    const set = getDeletedRecordIds(category);
+    set.add(id);
+    localStorage.setItem(`mekong_deleted_ids_${category}`, JSON.stringify(Array.from(set)));
+  } catch (err) {
+    console.warn(`Error marking record deleted for ${category}:`, err);
+  }
+}
+
+export function getSavedCategoryRecords<T>(category: string): T[] | null {
+  try {
+    const raw = localStorage.getItem(`mekong_records_${category}`);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn(`Error reading saved records for ${category}:`, err);
+  }
+  return null;
+}
+
+export function saveCategoryRecords<T>(category: string, records: T[]): void {
+  try {
+    localStorage.setItem(`mekong_records_${category}`, JSON.stringify(records));
+  } catch (err) {
+    console.warn(`Error saving records for ${category}:`, err);
+  }
+}
+
+// 2.1 Worker Labor Sheet Interface & Fetcher (Tab "ค่าแรงงานคนงาน")
 export interface WorkerLaborRecord {
   id: string;
   date: string;
@@ -1033,79 +1140,95 @@ export interface WorkerLaborRecord {
 }
 
 export async function fetchWorkerLaborSheetData(): Promise<WorkerLaborRecord[]> {
-  const GID = '264764262';
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`;
+  const category = 'worker_labor';
+  const deletedIds = getDeletedRecordIds(category);
+
+  const tabName = 'ค่าแรงงานคนงาน';
+  const url = `https://docs.google.com/spreadsheets/d/${EXPENSES_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
 
   try {
     const response = await axios.get(url);
     const parsed = Papa.parse(response.data, { header: true, skipEmptyLines: true });
 
     if (parsed.data && parsed.data.length > 0) {
-      return (parsed.data as any[]).map((row, idx) => {
-        const keys = Object.keys(row);
-        const idKey = keys.find(k => k === 'ID' || k.toLowerCase().includes('id')) || '';
-        const dateKey = keys.find(k => k.includes('วันที่')) || '';
-        const nameKey = keys.find(k => k.includes('พนักงาน') || k.includes('ชื่อ')) || '';
-        const inKey = keys.find(k => k.includes('เวลามา')) || '';
-        const outKey = keys.find(k => k.includes('เวลากลับ')) || '';
-        const breakKey = keys.find(k => k.includes('พัก')) || '';
-        const workHoursKey = keys.find(k => k === 'ชั่วโมงทำงาน' || (k.includes('ชั่วโมง') && !k.includes('OT'))) || '';
-        const otHoursKey = keys.find(k => k.includes('ชั่วโมง OT (สำหรับคิดค่าแรง)') || k.includes('สำหรับคิดค่าแรง'))
-          || keys.find(k => k.includes('ชั่วโมง OT') || k.includes('ชั่วโมงOT')) || '';
-        const baseWageKey = keys.find(k => k.includes('ค่าแรงปกติ')) || '';
-        const otWageKey = keys.find(k => k.includes('ค่า OT')) || '';
-        const bonusKey = keys.find(k => k.includes('โบนัส') || k.includes('เงินพิเศษ') || k.toLowerCase().includes('bonus')) || '';
-        const loanDeductionKey = keys.find(k => k.includes('หักเงินยืม') || k.includes('เงินยืม') || k.includes('ยืม')) || '';
-        const totalWageKey = keys.find(k => k.includes('รวมค่าจ้าง') || k.includes('ยอดจ่าย') || k.includes('รวม')) || '';
-        const statusKey = keys.find(k => k.includes('สถานะ')) || '';
-        const notesKey = keys.find(k => k.includes('หมายเหตุ')) || '';
+      const records: WorkerLaborRecord[] = (parsed.data as any[])
+        .map((rawRow, idx) => {
+          const row = cleanRowKeys(rawRow);
+          const keys = Object.keys(row);
+          const idKey = keys.find(k => k === 'ID' || k.toLowerCase().includes('id')) || '';
+          const dateKey = keys.find(k => k.includes('วันที่')) || '';
+          const nameKey = keys.find(k => k.includes('พนักงาน') || k.includes('ชื่อ') || k.includes('รายการ') || k.includes('รายละเอียด') || k.includes('หมวดหมู่')) || '';
+          const inKey = keys.find(k => k.includes('เวลามา')) || '';
+          const outKey = keys.find(k => k.includes('เวลากลับ')) || '';
+          const breakKey = keys.find(k => k.includes('พัก')) || '';
+          const workHoursKey = keys.find(k => k === 'ชั่วโมงทำงาน' || (k.includes('ชั่วโมง') && !k.includes('OT'))) || '';
+          const otHoursKey = keys.find(k => k.includes('ชั่วโมง OT') || k.includes('สำหรับคิดค่าแรง') || k.includes('OT')) || '';
+          const baseWageKey = keys.find(k => k.includes('ค่าแรงปกติ') || k.includes('ค่าแรง') || k.includes('จำนวนเงิน')) || '';
+          const otWageKey = keys.find(k => k.includes('ค่า OT') || k.includes('ค่าOT')) || '';
+          const bonusKey = keys.find(k => k.includes('โบนัส') || k.includes('เงินพิเศษ') || k.toLowerCase().includes('bonus')) || '';
+          const loanDeductionKey = keys.find(k => k.includes('หักเงินยืม') || k.includes('เงินยืม') || k.includes('ยืม')) || '';
+          const totalWageKey = keys.find(k => k.includes('รวมค่าจ้าง') || k.includes('ยอดจ่าย') || k.includes('รวม') || k.includes('จำนวนเงิน')) || '';
+          const statusKey = keys.find(k => k.includes('สถานะ')) || '';
+          const notesKey = keys.find(k => k.includes('หมายเหตุ')) || '';
 
-        const dateStr = row[dateKey] || '';
-        let dayNum = 15;
-        if (dateStr) {
-          const parts = dateStr.split(/[/.-]/);
-          if (parts.length > 0) {
-            const d = parseInt(parts[0]);
-            if (!isNaN(d)) dayNum = d;
+          const recordId = row[idKey] || `labor-${idx + 1}`;
+          const dateStr = row[dateKey] || '';
+          let dayNum = 15;
+          if (dateStr) {
+            const parts = dateStr.split(/[/.-]/);
+            if (parts.length > 0) {
+              const d = parseInt(parts[0]);
+              if (!isNaN(d)) dayNum = d;
+            }
           }
-        }
-        const payCyclePeriod: '1st-15th' | '16th-End' = dayNum <= 15 ? '1st-15th' : '16th-End';
+          const payCyclePeriod: '1st-15th' | '16th-End' = dayNum <= 15 ? '1st-15th' : '16th-End';
 
-        const breakHours = parseFloat(row[breakKey]?.toString().replace(/,/g, '')) || 1;
-        const workHours = parseFloat(row[workHoursKey]?.toString().replace(/,/g, '')) || 8;
-        const otHours = parseFloat(row[otHoursKey]?.toString().replace(/,/g, '')) || 0;
-        const baseWage = parseFloat(row[baseWageKey]?.toString().replace(/,/g, '')) || 400;
-        const otWage = parseFloat(row[otWageKey]?.toString().replace(/,/g, '')) || 0;
-        const bonus = parseFloat(row[bonusKey]?.toString().replace(/,/g, '')) || 0;
-        const loanDeduction = parseFloat(row[loanDeductionKey]?.toString().replace(/,/g, '')) || 0;
-        const totalWageParsed = parseFloat(row[totalWageKey]?.toString().replace(/,/g, ''));
-        const totalWage = !isNaN(totalWageParsed) && totalWageParsed !== 0 ? totalWageParsed : (baseWage + otWage + bonus - loanDeduction);
+          const breakHours = parseFloat(row[breakKey]?.toString().replace(/,/g, '')) || 1;
+          const workHours = parseFloat(row[workHoursKey]?.toString().replace(/,/g, '')) || 8;
+          const otHours = parseFloat(row[otHoursKey]?.toString().replace(/,/g, '')) || 0;
+          const baseWage = parseFloat(row[baseWageKey]?.toString().replace(/,/g, '')) || 400;
+          const otWage = parseFloat(row[otWageKey]?.toString().replace(/,/g, '')) || 0;
+          const bonus = parseFloat(row[bonusKey]?.toString().replace(/,/g, '')) || 0;
+          const loanDeduction = parseFloat(row[loanDeductionKey]?.toString().replace(/,/g, '')) || 0;
+          const totalWageParsed = parseFloat(row[totalWageKey]?.toString().replace(/,/g, ''));
+          const totalWage = !isNaN(totalWageParsed) && totalWageParsed !== 0 ? totalWageParsed : (baseWage + otWage + bonus - loanDeduction);
 
-        return {
-          id: row[idKey] || `labor-${idx}-${Date.now()}`,
-          date: dateStr,
-          employeeName: row[nameKey] || 'คนงานโรงสี',
-          checkInTime: row[inKey] || '08:00',
-          checkOutTime: row[outKey] || '17:00',
-          breakHours,
-          workHours,
-          otHours,
-          baseWage,
-          otWage,
-          bonus,
-          loanDeduction,
-          totalWage,
-          status: row[statusKey] || 'ทำงานปกติ',
-          notes: row[notesKey] || '',
-          payCyclePeriod
-        };
-      });
+          return {
+            id: String(recordId),
+            date: dateStr || new Date().toISOString().split('T')[0],
+            employeeName: row[nameKey] || 'คนงานโรงสี',
+            checkInTime: row[inKey] || '08:00',
+            checkOutTime: row[outKey] || '17:00',
+            breakHours,
+            workHours,
+            otHours,
+            baseWage,
+            otWage,
+            bonus,
+            loanDeduction,
+            totalWage,
+            status: row[statusKey] || 'ทำงานปกติ',
+            notes: row[notesKey] || '',
+            payCyclePeriod
+          };
+        })
+        .filter(r => !deletedIds.has(r.id) && r.employeeName !== 'หมวดหมู่');
+
+      if (records.length > 0) {
+        saveCategoryRecords(category, records);
+        return records;
+      }
     }
   } catch (err) {
-    console.warn('Could not fetch Worker Labor sheet, using fallback dataset:', err);
+    console.warn('Could not fetch Worker Labor sheet, checking local storage/fallback:', err);
   }
 
-  return getFallbackWorkerLaborData();
+  const saved = getSavedCategoryRecords<WorkerLaborRecord>(category);
+  if (saved && saved.length > 0) {
+    return saved.filter(r => !deletedIds.has(r.id));
+  }
+
+  return getFallbackWorkerLaborData().filter(r => !deletedIds.has(r.id));
 }
 
 function getFallbackWorkerLaborData(): WorkerLaborRecord[] {
@@ -1136,6 +1259,72 @@ export interface FuelExpenseRecord {
   receiptUrl?: string;
   odometerPhotoUrl?: string;
   notes?: string;
+}
+
+export async function fetchFuelExpensesSheetData(): Promise<FuelExpenseRecord[]> {
+  const category = 'fuel';
+  const deletedIds = getDeletedRecordIds(category);
+
+  const tabName = 'ค่าน้ำมันเชื้อเพลิง';
+  const url = `https://docs.google.com/spreadsheets/d/${EXPENSES_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+
+  try {
+    const response = await axios.get(url);
+    const parsed = Papa.parse(response.data, { header: true, skipEmptyLines: true });
+
+    if (parsed.data && parsed.data.length > 0) {
+      const records: FuelExpenseRecord[] = (parsed.data as any[])
+        .map((rawRow, idx) => {
+          const row = cleanRowKeys(rawRow);
+          const keys = Object.keys(row);
+          const idKey = keys.find(k => k === 'ID' || k.toLowerCase().includes('id')) || '';
+          const dateKey = keys.find(k => k.includes('วันที่')) || '';
+          const stationKey = keys.find(k => k.includes('สถานี') || k.includes('ผู้ขาย') || k.includes('ปั๊ม')) || '';
+          const typeKey = keys.find(k => k.includes('ประเภท')) || '';
+          const litersKey = keys.find(k => k.includes('ลิตร') || k.includes('ปริมาณ')) || '';
+          const plateKey = keys.find(k => k.includes('ทะเบียน')) || '';
+          const costKey = keys.find(k => k.includes('จำนวนเงิน') || k.includes('บาท') || k.includes('ยอด')) || '';
+          const notesKey = keys.find(k => k.includes('หมายเหตุ') || k.includes('อ้างอิง')) || '';
+
+          const recordId = row[idKey] || `fuel-${idx + 1}`;
+          const totalCostBaht = parseFloat(row[costKey]?.toString().replace(/,/g, '')) || 0;
+          const liters = parseFloat(row[litersKey]?.toString().replace(/,/g, '')) || 0;
+          const pricePerLiter = liters > 0 ? parseFloat((totalCostBaht / liters).toFixed(2)) : 32.80;
+
+          return {
+            id: String(recordId),
+            date: row[dateKey] || new Date().toISOString().split('T')[0],
+            stationName: row[stationKey] || 'ปั๊มน้ำมัน',
+            fuelType: row[typeKey] || 'ดีเซล B7',
+            liters,
+            vehiclePlate: row[plateKey] || 'ผก 8812 นครพนม',
+            pricePerLiter,
+            totalCostBaht,
+            previousOdometerKm: 142100 + (idx * 300),
+            currentOdometerKm: 142450 + (idx * 300),
+            distanceDrivenKm: 350,
+            kmPerLiter: liters > 0 ? parseFloat((350 / liters).toFixed(2)) : 10,
+            costPerKm: parseFloat((totalCostBaht / 350).toFixed(2)),
+            notes: row[notesKey] || ''
+          };
+        })
+        .filter(r => !deletedIds.has(r.id) && r.stationName !== 'สถานีน้ำมัน / ผู้ขาย');
+
+      if (records.length > 0) {
+        saveCategoryRecords(category, records);
+        return records;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch Fuel Expenses sheet, checking local storage/fallback:', err);
+  }
+
+  const saved = getSavedCategoryRecords<FuelExpenseRecord>(category);
+  if (saved && saved.length > 0) {
+    return saved.filter(r => !deletedIds.has(r.id));
+  }
+
+  return getFallbackFuelExpensesData().filter(r => !deletedIds.has(r.id));
 }
 
 export function getFallbackFuelExpensesData(): FuelExpenseRecord[] {
@@ -1337,6 +1526,90 @@ export function getFallbackElectricityExpensesData(): ElectricityExpenseRecord[]
   ];
 }
 
+export async function fetchElectricityExpensesSheetData(): Promise<ElectricityExpenseRecord[]> {
+  const category = 'electricity';
+  const deletedIds = getDeletedRecordIds(category);
+
+  const tabName = 'ค่าไฟฟ้าโรงสี';
+  const url = `https://docs.google.com/spreadsheets/d/${EXPENSES_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+
+  try {
+    const response = await axios.get(url);
+    const parsed = Papa.parse(response.data, { header: true, skipEmptyLines: true });
+
+    if (parsed.data && parsed.data.length > 0) {
+      const records: ElectricityExpenseRecord[] = (parsed.data as any[])
+        .map((rawRow, idx) => {
+          const row = cleanRowKeys(rawRow);
+          const keys = Object.keys(row);
+          const idKey = keys.find(k => k === 'ID' || k.toLowerCase().includes('id')) || '';
+          const periodKey = keys.find(k => k.includes('รอบ') || k.includes('Billing') || k.includes('เดือน') || k.includes('ประจำเดือน')) || '';
+          const caKey = keys.find(k => k.includes('CA') || k.includes('ผู้ใช้')) || '';
+          const meterKey = keys.find(k => k.includes('มิเตอร์')) || '';
+
+          // Target specific columns strictly
+          const totalKey = keys.find(k => k.includes('ยอดเงินรวม') || (k.includes('ยอดเงิน') && k.includes('บาท')) || (k.includes('รวม') && k.includes('บาท') && !k.includes('หน่วย'))) || '';
+          const unitsKey = keys.find(k => k.includes('หน่วยรวม') || (k.includes('kWh') && k.includes('รวม'))) || '';
+          const peakKey = keys.find(k => (k.includes('On-Peak') || k.includes('On Peak')) && !k.includes('Demand')) || '';
+          const offPeakKey = keys.find(k => k.includes('Off-Peak') || k.includes('Off Peak')) || '';
+          const peakDemandKey = keys.find(k => k.includes('Peak Demand') || (k.includes('Demand') && k.includes('kW'))) || '';
+          const ftKey = keys.find(k => k.includes('FT')) || '';
+          const pfKey = keys.find(k => k.includes('PF') || k.includes('Power Factor')) || '';
+          const vatKey = keys.find(k => k.includes('VAT') || k.includes('ภาษี')) || '';
+          const aiKey = keys.find(k => k.includes('วิเคราะห์') || k.includes('AI') || k.includes('หมายเหตุ')) || '';
+
+          const recordId = row[idKey] || `elec-gsheet-${idx + 1}`;
+          const totalAmountBaht = parseNumber(row[totalKey]);
+          const totalUnitsKwhRaw = parseNumber(row[unitsKey]);
+          const peakUnitsKwh = parseNumber(row[peakKey]);
+          const offPeakUnitsKwh = parseNumber(row[offPeakKey]);
+          const ftTotalBaht = parseNumber(row[ftKey]);
+          const pfPenaltyBaht = parseNumber(row[pfKey]);
+          const vatAmountBaht = parseNumber(row[vatKey]) || Math.round(totalAmountBaht * 0.07 * 100) / 100;
+          const peakDemandKw = parseNumber(row[peakDemandKey]);
+
+          const totalUnitsKwh = totalUnitsKwhRaw > 0 ? totalUnitsKwhRaw : (peakUnitsKwh + offPeakUnitsKwh);
+          const normalizedPeriod = normalizeBillingPeriod(row[periodKey] || '');
+          const periodStr = row[periodKey] ? String(row[periodKey]).trim() : normalizedPeriod;
+
+          return {
+            id: String(recordId),
+            billingPeriod: periodStr,
+            caNumber: row[caKey] ? String(row[caKey]).trim() : '20029119125',
+            meterNumber: row[meterKey] ? String(row[meterKey]).trim() : '6300584313',
+            totalAmountBaht: totalAmountBaht > 0 ? totalAmountBaht : parseFloat((totalUnitsKwh * 5.8).toFixed(2)),
+            totalUnitsKwh,
+            peakUnitsKwh,
+            offPeakUnitsKwh,
+            peakAmountBaht: parseFloat((peakUnitsKwh * 4.1839).toFixed(2)),
+            offPeakAmountBaht: parseFloat((offPeakUnitsKwh * 2.6037).toFixed(2)),
+            ftRatePerUnit: 0.0972,
+            ftTotalBaht,
+            vatAmountBaht,
+            peakDemandKw,
+            powerFactorPenaltyBaht: pfPenaltyBaht,
+            efficiencyAnalysis: row[aiKey] || 'ข้อมูลเชื่อมตรงกับ Google Sheets (ชีต ค่าไฟฟ้าโรงสี)'
+          };
+        })
+        .filter(r => !deletedIds.has(r.id) && r.billingPeriod !== 'รอบเดือน (Billing Period)' && (r.totalUnitsKwh > 0 || r.totalAmountBaht > 0));
+
+      if (records.length > 0) {
+        saveCategoryRecords(category, records);
+        return records;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch Electricity Expenses sheet, checking local storage/fallback:', err);
+  }
+
+  const saved = getSavedCategoryRecords<ElectricityExpenseRecord>(category);
+  if (saved && saved.length > 0) {
+    return saved.filter(r => !deletedIds.has(r.id));
+  }
+
+  return getFallbackElectricityExpensesData().filter(r => !deletedIds.has(r.id));
+}
+
 // 2.4 Machine Maintenance Expenses
 export interface MachineMaintenanceRecord {
   id: string;
@@ -1359,6 +1632,75 @@ export function getFallbackMachineMaintenanceData(): MachineMaintenanceRecord[] 
   ];
 }
 
+export async function fetchMachineMaintenanceSheetData(): Promise<MachineMaintenanceRecord[]> {
+  const category = 'maintenance';
+  const deletedIds = getDeletedRecordIds(category);
+
+  const tabName = 'ประวัติค่าซ่อมบำรุงเครื่องจักรโรงสี';
+  const url = `https://docs.google.com/spreadsheets/d/${EXPENSES_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+
+  try {
+    const response = await axios.get(url);
+    const parsed = Papa.parse(response.data, { header: true, skipEmptyLines: true });
+
+    if (parsed.data && parsed.data.length > 0) {
+      const records: MachineMaintenanceRecord[] = (parsed.data as any[])
+        .map((rawRow, idx) => {
+          const row = cleanRowKeys(rawRow);
+          const keys = Object.keys(row);
+          const idKey = keys.find(k => k === 'ID' || k.toLowerCase().includes('id')) || '';
+          const dateKey = keys.find(k => k.includes('วันที่')) || '';
+          const machineKey = keys.find(k => k.includes('เครื่องจักร') || k.includes('อุปกรณ์') || k.includes('รายการ')) || '';
+          const typeKey = keys.find(k => k.includes('ประเภท')) || '';
+          const partsKey = keys.find(k => k.includes('อะไหล่') || k.includes('เปลี่ยน')) || '';
+          const techKey = keys.find(k => k.includes('ช่าง') || k.includes('ผู้รับเหมา')) || '';
+          const costKey = keys.find(k => k.includes('ค่าใช้จ่าย') || k.includes('บาท') || k.includes('จำนวนเงิน')) || '';
+          const statusKey = keys.find(k => k.includes('สถานะ')) || '';
+          const notesKey = keys.find(k => k.includes('หมายเหตุ') || k.includes('อ้างอิง')) || '';
+
+          const recordId = row[idKey] || `maint-${idx + 1}`;
+          const rawType = row[typeKey] || '';
+          let maintenanceType: 'ซ่อมบำรุงตามระยะ' | 'ซ่อมแซมด่วน' | 'เปลี่ยนอะไหล่' | 'ตรวจเช็คประจำเดือน' = 'ซ่อมบำรุงตามระยะ';
+          if (rawType.includes('ด่วน')) maintenanceType = 'ซ่อมแซมด่วน';
+          else if (rawType.includes('อะไหล่')) maintenanceType = 'เปลี่ยนอะไหล่';
+          else if (rawType.includes('เช็ค') || rawType.includes('ตรวจ')) maintenanceType = 'ตรวจเช็คประจำเดือน';
+
+          const rawStatus = row[statusKey] || '';
+          let status: 'เสร็จสมบูรณ์' | 'รอดำเนินการ' | 'รออะไหล่' = 'เสร็จสมบูรณ์';
+          if (rawStatus.includes('รออะไหล่')) status = 'รออะไหล่';
+          else if (rawStatus.includes('รอดำเนินการ') || rawStatus.includes('กำลัง')) status = 'รอดำเนินการ';
+
+          return {
+            id: String(recordId),
+            date: row[dateKey] || new Date().toISOString().split('T')[0],
+            machineName: row[machineKey] || 'เครื่องจักรโรงสี',
+            maintenanceType,
+            replacedParts: row[partsKey] || 'อะไหล่ซ่อมบำรุง',
+            technician: row[techKey] || 'ช่างประจำโรงสี',
+            costBaht: parseFloat(row[costKey]?.toString().replace(/,/g, '')) || 0,
+            status,
+            notes: row[notesKey] || ''
+          };
+        })
+        .filter(r => !deletedIds.has(r.id) && r.machineName !== 'ชื่อเครื่องจักร / อุปกรณ์');
+
+      if (records.length > 0) {
+        saveCategoryRecords(category, records);
+        return records;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch Maintenance Expenses sheet, checking local storage/fallback:', err);
+  }
+
+  const saved = getSavedCategoryRecords<MachineMaintenanceRecord>(category);
+  if (saved && saved.length > 0) {
+    return saved.filter(r => !deletedIds.has(r.id));
+  }
+
+  return getFallbackMachineMaintenanceData().filter(r => !deletedIds.has(r.id));
+}
+
 // 2.5 CapEx / Capital Investments
 export interface CapExInvestmentRecord {
   id: string;
@@ -1378,4 +1720,72 @@ export function getFallbackCapExData(): CapExInvestmentRecord[] {
     { id: 'capex-2', date: '02/05/2026', title: 'ตู้คอนโทรลมอเตอร์อัตโนมัติ Soft Starter', category: 'เครื่องจักร/อุปกรณ์', amountBaht: 240000, expectedLifespanYears: 10, estimatedRoiNotes: 'ลดกระแสไฟกระชากช่วงสตาร์ทมอเตอร์ และยืดอายุการใช้งานเครื่องจักร', status: 'อนุมัติ/จ่ายแล้ว' },
     { id: 'capex-3', date: '10/04/2026', title: 'รถตักตักข้าวเปลือก/แกลบ KUBOTA MX5000', category: 'ยานพาหนะ/เครื่องจักรหนัก', amountBaht: 650000, expectedLifespanYears: 15, estimatedRoiNotes: 'เร่งความเร็วในการตักแกลบขึ้นรถบรรทุก ลดเวลาคอยของรถขนส่ง 50%', status: 'อนุมัติ/จ่ายแล้ว' }
   ];
+}
+
+export async function fetchCapExSheetData(): Promise<CapExInvestmentRecord[]> {
+  const category = 'capex';
+  const deletedIds = getDeletedRecordIds(category);
+
+  const tabName = 'งบลงทุน';
+  const url = `https://docs.google.com/spreadsheets/d/${EXPENSES_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+
+  try {
+    const response = await axios.get(url);
+    const parsed = Papa.parse(response.data, { header: true, skipEmptyLines: true });
+
+    if (parsed.data && parsed.data.length > 0) {
+      const records: CapExInvestmentRecord[] = (parsed.data as any[])
+        .map((rawRow, idx) => {
+          const row = cleanRowKeys(rawRow);
+          const keys = Object.keys(row);
+          const idKey = keys.find(k => k === 'ID' || k.toLowerCase().includes('id')) || '';
+          const dateKey = keys.find(k => k.includes('วันที่')) || '';
+          const titleKey = keys.find(k => k.includes('โครงการ') || k.includes('ทรัพย์สิน') || k.includes('รายการ')) || '';
+          const catKey = keys.find(k => k.includes('หมวดหมู่')) || '';
+          const amountKey = keys.find(k => k.includes('มูลค่า') || k.includes('ลงทุน') || k.includes('บาท') || k.includes('จำนวนเงิน')) || '';
+          const lifespanKey = keys.find(k => k.includes('อายุ') || k.includes('ปี')) || '';
+          const roiKey = keys.find(k => k.includes('ROI') || k.includes('ตอบแทน') || k.includes('หมายเหตุ')) || '';
+          const statusKey = keys.find(k => k.includes('สถานะ')) || '';
+
+          const recordId = row[idKey] || `capex-${idx + 1}`;
+          const rawCat = row[catKey] || '';
+          let category: 'เครื่องจักร/อุปกรณ์' | 'อาคาร/โกดัง' | 'โซลาร์เซลล์/พลังงาน' | 'ยานพาหนะ/เครื่องจักรหนัก' | 'ระบบไอที/ซอฟต์แวร์' = 'เครื่องจักร/อุปกรณ์';
+          if (rawCat.includes('อาคาร') || rawCat.includes('โกดัง')) category = 'อาคาร/โกดัง';
+          else if (rawCat.includes('โซลาร์') || rawCat.includes('พลังงาน')) category = 'โซลาร์เซลล์/พลังงาน';
+          else if (rawCat.includes('ยานพาหนะ') || rawCat.includes('หนัก')) category = 'ยานพาหนะ/เครื่องจักรหนัก';
+          else if (rawCat.includes('ไอที') || rawCat.includes('ซอฟต์แวร์')) category = 'ระบบไอที/ซอฟต์แวร์';
+
+          const rawStatus = row[statusKey] || '';
+          let status: 'อนุมัติ/จ่ายแล้ว' | 'กำลังดำเนินการ' | 'อยู่ระหว่างพิจารณา' = 'อนุมัติ/จ่ายแล้ว';
+          if (rawStatus.includes('กำลัง')) status = 'กำลังดำเนินการ';
+          else if (rawStatus.includes('พิจารณา')) status = 'อยู่ระหว่างพิจารณา';
+
+          return {
+            id: String(recordId),
+            date: row[dateKey] || new Date().toISOString().split('T')[0],
+            title: row[titleKey] || 'โครงการลงทุนใหม่',
+            category,
+            amountBaht: parseFloat(row[amountKey]?.toString().replace(/,/g, '')) || 0,
+            expectedLifespanYears: parseFloat(row[lifespanKey]?.toString().replace(/,/g, '')) || 10,
+            estimatedRoiNotes: row[roiKey] || 'คุ้มค่าการลงทุนระยะยาว',
+            status
+          };
+        })
+        .filter(r => !deletedIds.has(r.id) && r.title !== 'โครงการ / ทรัพย์สิน');
+
+      if (records.length > 0) {
+        saveCategoryRecords(category, records);
+        return records;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch CapEx sheet, checking local storage/fallback:', err);
+  }
+
+  const saved = getSavedCategoryRecords<CapExInvestmentRecord>(category);
+  if (saved && saved.length > 0) {
+    return saved.filter(r => !deletedIds.has(r.id));
+  }
+
+  return getFallbackCapExData().filter(r => !deletedIds.has(r.id));
 }

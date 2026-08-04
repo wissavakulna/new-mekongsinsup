@@ -19,7 +19,9 @@ import {
   Check,
   Download,
   X,
-  ExternalLink
+  ExternalLink,
+  Users,
+  Truck
 } from 'lucide-react';
 import { SmartScannedBill, syncSmartScannedBillsToGoogleSheets, DEFAULT_SPREADSHEET_ID } from '../../services/googleSheetsService';
 import { useGoogleAuth } from '../../services/googleAuthService';
@@ -74,9 +76,9 @@ export function SmartBillScannerView() {
             fileName: file.name,
             fileData: base64,
             fileType: isPdf ? 'pdf' : 'image',
-            category: parsed.category || 'expenses_hub',
+            category: parsed.category || 'worker_labor',
             categoryLabel: parsed.categoryLabel || getCategoryLabel(parsed.category),
-            vendorName: parsed.vendorName || 'ไม่ระบุชื่อผู้ขาย',
+            vendorName: parsed.vendorName || 'ไม่ระบุชื่อผู้ขาย/หน่วยงาน',
             billDate: parsed.billDate || new Date().toISOString().split('T')[0],
             invoiceNo: parsed.invoiceNo || '-',
             totalAmountBaht: Number(parsed.totalAmountBaht) || 0,
@@ -84,6 +86,11 @@ export function SmartBillScannerView() {
             description: parsed.description || 'สแกนเอกสารอัตโนมัติ',
             confidenceScore: parsed.confidenceScore || 0.95,
             reasoning: parsed.reasoning || '',
+            workerCount: parsed.workerCount,
+            payPeriod: parsed.payPeriod,
+            fuelType: parsed.fuelType,
+            fuelLiters: parsed.fuelLiters,
+            vehiclePlate: parsed.vehiclePlate,
             caNumber: parsed.caNumber,
             meterNumber: parsed.meterNumber,
             billingPeriod: parsed.billingPeriod,
@@ -121,12 +128,45 @@ export function SmartBillScannerView() {
     });
   };
 
-  // Load Preset Demo Multi-Bills
+  // Load Preset Demo Multi-Bills covering all 5 expense categories
   const handleLoadSampleBatch = async () => {
     setIsProcessing(true);
-    setProcessingProgress({ current: 0, total: 4 });
+    setProcessingProgress({ current: 0, total: 5 });
 
     const samples = [
+      {
+        fileName: 'สลิปค่าจ้าง_แรงงานย้ายกระสอบข้าว_16-31กค2569.pdf',
+        category: 'worker_labor' as const,
+        categoryLabel: 'ค่าแรงงาน',
+        vendorName: 'ทีมงานจ้างเหมาแบกข้าว & แผนกแรงงานโรงสี',
+        billDate: '2026-07-28',
+        invoiceNo: 'PAY-LABOR-2026/07-B',
+        totalAmountBaht: 28500.00,
+        vatAmountBaht: 0,
+        description: 'ค่าแรงงานจ้างเหมาแบกยกกระสอบข้าวขึ้นรถบรรทุกและค่า OT คนงานหน้าลานตาก',
+        confidenceScore: 0.98,
+        reasoning: 'พบคีย์เวิร์ด ค่าแรงงาน, สลิปจ่ายเงิน, OT คนงานโรงสี และจำนวนคนงานผู้รับเงิน',
+        workerCount: 12,
+        payPeriod: 'รอบ 16-31 ก.ค. 2569',
+        paymentMethod: 'โอนชำระผ่านระบบบัญชีธนาคาร (PromptPay)'
+      },
+      {
+        fileName: 'ใบเสร็จ_ค่าน้ำมันดีเซล_ปตท_รถบรรทุก10ล้อ.jpg',
+        category: 'fuel' as const,
+        categoryLabel: 'ค่าน้ำมันเชื้อเพลิง',
+        vendorName: 'สถานีบริการน้ำมัน ปตท. นครพนม (มิตรภาพ)',
+        billDate: '2026-07-29',
+        invoiceNo: 'TAX-PTT-88912',
+        totalAmountBaht: 12450.00,
+        vatAmountBaht: 814.49,
+        description: 'เติมค่าน้ำมันดีเซล B7 สำหรับรถบรรทุกขนส่งข้าวเปลือกและรถโฟล์คลิฟต์หน้าโรงสี',
+        confidenceScore: 0.97,
+        reasoning: 'พบตราปั๊ม ปตท., ชนิดน้ำมันดีเซล B7, ปริมาณลิตร และทะเบียนรถบรรทุกขนส่ง',
+        fuelType: 'น้ำมันดีเซล B7 UltraForce',
+        fuelLiters: 389.06,
+        vehiclePlate: '81-2249 นครพนม (รถบรรทุก 10 ล้อ)',
+        paymentMethod: 'บัตรเครดิตองค์กร / Fleet Card'
+      },
       {
         fileName: 'บิลไฟฟ้า_PEA_07_2569_โรงสี.pdf',
         category: 'electricity' as const,
@@ -149,7 +189,7 @@ export function SmartBillScannerView() {
       {
         fileName: 'ใบกำกับภาษี_ซ่อมชุดลูกปืนมอเตอร์ขัดเงา.png',
         category: 'maintenance' as const,
-        categoryLabel: 'ประวัติค่าซ่อมบำรุงเครื่องจักรโรงสี',
+        categoryLabel: 'ค่าซ่อมบำรุงเครื่องจักร',
         vendorName: 'ร้าน นครพนมกลการ & อะไหล่ยนต์',
         billDate: '2026-07-29',
         invoiceNo: 'TAX-2026/088',
@@ -164,23 +204,9 @@ export function SmartBillScannerView() {
         technician: 'ช่างสมหมาย & ทีมงานนครพนมกลการ'
       },
       {
-        fileName: 'ใบเสร็จ_ค่าน้ำมันดีเซล_รถบรรทุก10ล้อ.jpg',
-        category: 'expenses_hub' as const,
-        categoryLabel: 'ข้อมูลรายจ่ายโรงสี (Expenses Hub)',
-        vendorName: 'สถานีบริการน้ำมัน ปตท. นครพนม',
-        billDate: '2026-07-31',
-        invoiceNo: 'RECEIPT-88912',
-        totalAmountBaht: 3850.00,
-        vatAmountBaht: 251.87,
-        description: 'ค่าน้ำมันดีเซล B7 สำหรับรถบรรทุกสิบล้อส่งมอบข้าวสารให้ลูกค้าล็อตใหญ่',
-        confidenceScore: 0.94,
-        reasoning: 'บิลค่าน้ำมันเชื้อเพลิงและค่าใช้จ่ายดำเนินงานประจำวันของโรงสี',
-        paymentMethod: 'โอนชำระผ่านธนาคาร / QR Code'
-      },
-      {
         fileName: 'สัญญาจ้างก่อสร้างหลังคาลานตากข้าว_CapEx.pdf',
         category: 'capex' as const,
-        categoryLabel: 'รายการลงทุนเพิ่มทรัพย์สินและสิ่งปลูกสร้าง (CapEx)',
+        categoryLabel: 'งบลงทุน CapEx',
         vendorName: 'บริษัท นครพนมวิศวกรรมก่อสร้าง จำกัด',
         billDate: '2026-07-30',
         invoiceNo: 'CAPEX-2026-014',
@@ -243,7 +269,7 @@ export function SmartBillScannerView() {
       } else {
         setSyncResultMsg({
           type: 'success',
-          message: `บันทึกข้อมูลบิลทั้ง ${successCount} รายการไปยัง Google Sheet (${DEFAULT_SPREADSHEET_ID}) เรียบร้อยแล้ว!`
+          message: `บันทึกข้อมูลบิลทั้ง ${successCount} รายการลง Google Sheet (${DEFAULT_SPREADSHEET_ID}) เรียบร้อยแล้ว!`
         });
 
         // Mark as synced
@@ -271,18 +297,34 @@ export function SmartBillScannerView() {
 
   const getCategoryLabel = (cat: string) => {
     switch (cat) {
-      case 'electricity': return 'ค่าไฟฟ้า PEA';
-      case 'maintenance': return 'ประวัติค่าซ่อมบำรุงเครื่องจักรโรงสี';
-      case 'capex': return 'รายการลงทุนเพิ่มทรัพย์สินและสิ่งปลูกสร้าง (CapEx)';
-      default: return 'ข้อมูลรายจ่ายโรงสี (Expenses Hub)';
+      case 'worker_labor': return 'ค่าแรงงาน';
+      case 'fuel': return 'น้ำมัน';
+      case 'electricity': return 'ไฟฟ้า';
+      case 'maintenance': return 'ซ่อมบำรุง';
+      case 'capex': return 'ลงทุน (CapEx)';
+      default: return 'ค่าแรงงาน';
     }
   };
 
   const getCategoryBadge = (cat: string) => {
     switch (cat) {
-      case 'electricity':
+      case 'worker_labor':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+            <Users className="w-3.5 h-3.5" />
+            ค่าแรงงาน
+          </span>
+        );
+      case 'fuel':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+            <Truck className="w-3.5 h-3.5" />
+            ค่าน้ำมันเชื้อเพลิง
+          </span>
+        );
+      case 'electricity':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20">
             <Zap className="w-3.5 h-3.5" />
             ค่าไฟฟ้า PEA
           </span>
@@ -298,14 +340,14 @@ export function SmartBillScannerView() {
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
             <Building2 className="w-3.5 h-3.5" />
-            CapEx สิ่งปลูกสร้าง
+            งบลงทุน CapEx
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-            <Receipt className="w-3.5 h-3.5" />
-            รายจ่ายทั่วไป (Expenses)
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+            <Users className="w-3.5 h-3.5" />
+            ค่าแรงงาน
           </span>
         );
     }
@@ -333,11 +375,11 @@ export function SmartBillScannerView() {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold mb-2 border border-emerald-500/30">
               <Sparkles className="w-3.5 h-3.5 text-emerald-300 animate-pulse" />
-              AI Multi-Document Scanner & Auto-Categorizer
+              AI Document Classifier (5 Expense Categories)
             </div>
-            <h2 className="text-2xl font-bold tracking-tight">ระบบแสกนบิลอัจฉริยะ (Smart Bill Scanner)</h2>
+            <h2 className="text-2xl font-bold tracking-tight">ระบบจำแนกบิลและรายจ่ายอัจฉริยะ (AI Smart Bill Scanner)</h2>
             <p className="text-sm text-emerald-100/80 mt-1 max-w-2xl">
-              รองรับการอัปเดตแสกนบิลครั้งละหลายๆ ไฟล์ทั้งรูปภาพและ PDF โดย AI จะจำแนกหมวดหมู่รายจ่าย บันทึกรายละเอียดเชิงลึก และเชื่อมโยงส่งออกไปยังฐานข้อมูล Google Sheets โดยอัตโนมัติ
+              ระบบปัญญาประดิษฐ์สแกนและแยกหมวดหมู่รายจ่ายอัตโนมัติตามมาตรฐาน 5 ด้าน: <strong className="text-emerald-300">ค่าแรงงาน, น้ำมัน, ไฟฟ้า, ซ่อมบำรุง, และลงทุน (CapEx)</strong> พร้อมส่งออกข้อมูลตรงไปยัง Google Sheets
             </p>
           </div>
 
@@ -348,7 +390,7 @@ export function SmartBillScannerView() {
               className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-medium backdrop-blur-sm transition-all border border-white/15 flex items-center gap-2 shadow-sm"
             >
               <Sparkles className="w-4 h-4 text-emerald-400" />
-              ทดลองด้วยชุดบิลตัวอย่าง 4 หมวด
+              ทดลองด้วยชุดบิลตัวอย่าง 5 หมวดรายจ่าย
             </button>
           </div>
         </div>
@@ -390,10 +432,10 @@ export function SmartBillScannerView() {
             <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
               {isProcessing
                 ? `กำลังวิเคราะห์เอกสาร (${processingProgress.current}/${processingProgress.total})...`
-                : 'คลิก หรือ ลากไฟล์บิล/เอกสารมาวางที่นี่'}
+                : 'คลิก หรือ ลากไฟล์บิล/สลิปเอกสารมาวางที่นี่'}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              รองรับไฟล์ภาพ JPG, PNG, WEBP และเอกสาร PDF (เลือกได้ทีละหลายๆ ไฟล์พร้อมกัน)
+              รองรับไฟล์สลิป/บิลรูปภาพ JPG, PNG, WEBP และ PDF (ระบบจะแยกหมวดหมู่ ค่าแรงงาน/น้ำมัน/ไฟฟ้า/ซ่อมบำรุง/ลงทุน อัตโนมัติ)
             </p>
           </div>
 
@@ -483,7 +525,7 @@ export function SmartBillScannerView() {
           </div>
         </div>
 
-        {/* Filters */}
+        {/* Filters for 5 Expense Categories */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
             <button
@@ -496,17 +538,43 @@ export function SmartBillScannerView() {
             >
               ทั้งหมด
             </button>
+
             <button
-              onClick={() => setSelectedCategoryFilter('expenses_hub')}
+              onClick={() => setSelectedCategoryFilter('worker_labor')}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 flex items-center gap-1.5 ${
-                selectedCategoryFilter === 'expenses_hub'
-                  ? 'bg-emerald-600 text-white shadow-sm'
+                selectedCategoryFilter === 'worker_labor'
+                  ? 'bg-rose-600 text-white shadow-sm'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
               }`}
             >
-              <Receipt className="w-3.5 h-3.5" />
-              รายจ่ายโรงสี
+              <Users className="w-3.5 h-3.5" />
+              ค่าแรงงาน
             </button>
+
+            <button
+              onClick={() => setSelectedCategoryFilter('fuel')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 flex items-center gap-1.5 ${
+                selectedCategoryFilter === 'fuel'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
+              }`}
+            >
+              <Truck className="w-3.5 h-3.5" />
+              น้ำมัน
+            </button>
+
+            <button
+              onClick={() => setSelectedCategoryFilter('electricity')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 flex items-center gap-1.5 ${
+                selectedCategoryFilter === 'electricity'
+                  ? 'bg-yellow-600 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              ไฟฟ้า
+            </button>
+
             <button
               onClick={() => setSelectedCategoryFilter('maintenance')}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 flex items-center gap-1.5 ${
@@ -516,8 +584,9 @@ export function SmartBillScannerView() {
               }`}
             >
               <Wrench className="w-3.5 h-3.5" />
-              ประวัติซ่อมบำรุง
+              ซ่อมบำรุง
             </button>
+
             <button
               onClick={() => setSelectedCategoryFilter('capex')}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 flex items-center gap-1.5 ${
@@ -527,18 +596,7 @@ export function SmartBillScannerView() {
               }`}
             >
               <Building2 className="w-3.5 h-3.5" />
-              CapEx สิ่งปลูกสร้าง
-            </button>
-            <button
-              onClick={() => setSelectedCategoryFilter('electricity')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 flex items-center gap-1.5 ${
-                selectedCategoryFilter === 'electricity'
-                  ? 'bg-amber-600 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              ค่าไฟฟ้า PEA
+              ลงทุน
             </button>
           </div>
 
@@ -571,7 +629,7 @@ export function SmartBillScannerView() {
                 <tr>
                   <th className="py-3.5 px-4">ไฟล์เอกสาร</th>
                   <th className="py-3.5 px-4">หมวดหมู่ AI จำแนก</th>
-                  <th className="py-3.5 px-4">ร้านค้า / หน่วยงาน</th>
+                  <th className="py-3.5 px-4">ผู้ขาย / หน่วยงาน / ทีมงาน</th>
                   <th className="py-3.5 px-4">เลขที่บิล / อ้างอิง</th>
                   <th className="py-3.5 px-4">วันที่บิล</th>
                   <th className="py-3.5 px-4 text-right">ยอดเงินรวม (บาท)</th>
@@ -670,7 +728,7 @@ export function SmartBillScannerView() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl space-y-1">
-                <span className="text-slate-400 font-medium">ชื่อร้านค้า / หน่วยงาน</span>
+                <span className="text-slate-400 font-medium">ชื่อผู้ขาย / ปั๊ม / ทีมงาน / หน่วยงาน</span>
                 <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm">{selectedBillModal.vendorName}</p>
               </div>
 
@@ -691,17 +749,45 @@ export function SmartBillScannerView() {
                 <p className="text-slate-700 dark:text-slate-300">{selectedBillModal.billDate}</p>
               </div>
 
-              {/* Specific details */}
-              {selectedBillModal.category === 'electricity' && (
+              {/* Category-Specific Detailed Fields */}
+              {selectedBillModal.category === 'worker_labor' && (
+                <>
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/30 rounded-xl space-y-1">
+                    <span className="text-rose-700 dark:text-rose-400 font-medium">จำนวนคนงาน</span>
+                    <p className="font-semibold text-rose-900 dark:text-rose-200">{selectedBillModal.workerCount || 1} คน</p>
+                  </div>
+
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/30 rounded-xl space-y-1">
+                    <span className="text-rose-700 dark:text-rose-400 font-medium">รอบจ่ายค่าจ้าง</span>
+                    <p className="font-semibold text-rose-900 dark:text-rose-200">{selectedBillModal.payPeriod || 'ประจำงวด'}</p>
+                  </div>
+                </>
+              )}
+
+              {selectedBillModal.category === 'fuel' && (
                 <>
                   <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl space-y-1">
-                    <span className="text-amber-700 dark:text-amber-400 font-medium">หมายเลข CA / มิเตอร์</span>
-                    <p className="font-mono text-amber-900 dark:text-amber-200">{selectedBillModal.caNumber || '-'} / {selectedBillModal.meterNumber || '-'}</p>
+                    <span className="text-amber-700 dark:text-amber-400 font-medium">ประเภทน้ำมัน & ปริมาณ</span>
+                    <p className="font-semibold text-amber-900 dark:text-amber-200">{selectedBillModal.fuelType || 'ดีเซล'} ({selectedBillModal.fuelLiters || 0} ลิตร)</p>
                   </div>
 
                   <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl space-y-1">
-                    <span className="text-amber-700 dark:text-amber-400 font-medium">หน่วยไฟรวม (kWh)</span>
-                    <p className="font-mono text-amber-900 dark:text-amber-200">{selectedBillModal.totalUnitsKwh?.toLocaleString() || '-'} หน่วย</p>
+                    <span className="text-amber-700 dark:text-amber-400 font-medium">ทะเบียนรถบรรทุก</span>
+                    <p className="font-semibold text-amber-900 dark:text-amber-200">{selectedBillModal.vehiclePlate || '-'}</p>
+                  </div>
+                </>
+              )}
+
+              {selectedBillModal.category === 'electricity' && (
+                <>
+                  <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 rounded-xl space-y-1">
+                    <span className="text-yellow-700 dark:text-yellow-400 font-medium">หมายเลข CA / มิเตอร์</span>
+                    <p className="font-mono text-yellow-900 dark:text-yellow-200">{selectedBillModal.caNumber || '-'} / {selectedBillModal.meterNumber || '-'}</p>
+                  </div>
+
+                  <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 rounded-xl space-y-1">
+                    <span className="text-yellow-700 dark:text-yellow-400 font-medium">หน่วยไฟรวม (kWh)</span>
+                    <p className="font-mono text-yellow-900 dark:text-yellow-200">{selectedBillModal.totalUnitsKwh?.toLocaleString() || '-'} หน่วย</p>
                   </div>
                 </>
               )}

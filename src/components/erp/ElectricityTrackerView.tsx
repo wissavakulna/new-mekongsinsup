@@ -444,21 +444,23 @@ export default function ElectricityTrackerView({
   // Shift Simulator state (percentage of On-Peak workload shifted to Off-Peak)
   const [shiftPercent, setShiftPercent] = useState<number>(30); // 30% default
 
+  const parseSortKey = (p: string): number => {
+    if (!p) return 0;
+    const parts = p.split('/');
+    if (parts.length === 2) {
+      const m = parseInt(parts[0], 10) || 1;
+      let y = parseInt(parts[1], 10) || 2026;
+      if (y > 2500) y -= 543;
+      return y * 100 + m;
+    }
+    return 0;
+  };
+
   // Sort records chronologically (oldest to newest for charts)
-  const sortedRecordsForCharts = [...records].sort((a, b) => {
-    const [mA, yA] = a.billingPeriod.split('/').map(Number);
-    const [mB, yB] = b.billingPeriod.split('/').map(Number);
-    if (yA !== yB) return yA - yB;
-    return mA - mB;
-  });
+  const sortedRecordsForCharts = [...records].sort((a, b) => parseSortKey(a.billingPeriod) - parseSortKey(b.billingPeriod));
 
   // Sort records descending (newest first for table view)
-  const sortedRecordsForTable = [...records].sort((a, b) => {
-    const [mA, yA] = a.billingPeriod.split('/').map(Number);
-    const [mB, yB] = b.billingPeriod.split('/').map(Number);
-    if (yA !== yB) return yB - yA;
-    return mB - mA;
-  });
+  const sortedRecordsForTable = [...records].sort((a, b) => parseSortKey(b.billingPeriod) - parseSortKey(a.billingPeriod));
 
   // Calculate Aggregates
   const latestRecord = sortedRecordsForTable[0] || records[0];

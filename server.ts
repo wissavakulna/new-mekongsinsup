@@ -652,25 +652,33 @@ function cleanAndParseJson(rawText: string) {
         You are an expert Thai industrial accountant and document AI parser for a major Thai rice mill operation.
         Analyze the attached document/image (filename: "${fileName || 'bill'}").
 
-        Auto-classify the document into EXACTLY ONE of these categories:
-        1) "electricity": PEA / MEA electricity bill, industrial power usage statement.
-        2) "maintenance": Machinery repair invoice, spare parts purchase receipt, motor/mill maintenance, technician service bill.
-        3) "capex": Major capital expenditure, new building construction, solar rooftop installation, heavy equipment purchase, land improvement, factory expansion.
-        4) "expenses_hub": General mill operating expense, fuel/diesel bill, office supplies, daily labor/service fees, administrative expense, food/welfare.
+        Auto-classify the document into EXACTLY ONE of these 5 expense categories:
+        1) "worker_labor": ค่าแรงงาน / สลิปเงินเดือน / ค่าจ้างแรงงานรายวัน / ค่า OT / ค่าจ้างเหมาแบกข้าว / สวัสดิการคนงานโรงสี
+        2) "fuel": น้ำมัน / ใบเสร็จปั๊มน้ำมัน (ปตท., เชลล์, บางจาก, PT) / ค่าน้ำมันดีเซล B7, B20 / น้ำมันเบนซิน / ค่าน้ำมันรถบรรทุกขนข้าว
+        3) "electricity": ไฟฟ้า / ใบแจ้งค่าไฟฟ้า PEA (การไฟฟ้าส่วนภูมิภาค), MEA / ค่าไฟโรงสี
+        4) "maintenance": ซ่อมบำรุง / ค่าซ่อมบำรุงเครื่องจักร / ค่าอะไหล่ (ลูกปืน, สายพาน, มอเตอร์) / ค่าบริการช่างซ่อม
+        5) "capex": ลงทุน / รายการลงทุนเพิ่มทรัพย์สินและสิ่งปลูกสร้าง (CapEx) / สร้างอาคาร / หลังคาลานตากข้าว / โซล่าเซลล์ / ซื้อเครื่องจักรใหม่
 
         Extract all details in valid JSON format matching this exact schema:
         {
-          "category": "electricity" | "maintenance" | "capex" | "expenses_hub",
-          "categoryLabel": string (In Thai: "ค่าไฟฟ้า PEA" | "ประวัติค่าซ่อมบำรุงเครื่องจักรโรงสี" | "รายการลงทุนเพิ่มทรัพย์สินและสิ่งปลูกสร้าง (CapEx)" | "ข้อมูลรายจ่ายโรงสี"),
-          "vendorName": string (Supplier or agency name e.g. "การไฟฟ้าส่วนภูมิภาค", "ร้านนครพนมอะไหล่ยนต์"),
+          "category": "worker_labor" | "fuel" | "electricity" | "maintenance" | "capex",
+          "categoryLabel": string (In Thai e.g. "ค่าแรงงาน" | "ค่าน้ำมันเชื้อเพลิง" | "ค่าไฟฟ้า PEA" | "ค่าซ่อมบำรุงเครื่องจักร" | "งบลงทุนเพิ่มทรัพย์สิน (CapEx)"),
+          "vendorName": string (Supplier, station, agency, or worker team name e.g. "การไฟฟ้าส่วนภูมิภาค", "สถานีบริการน้ำมัน ปตท.", "ร้านนครพนมอะไหล่ยนต์", "ทีมงานจ้างเหมาแบกข้าว"),
           "billDate": string (e.g. "YYYY-MM-DD" or "DD/MM/YYYY"),
-          "invoiceNo": string (Invoice, receipt, tax ID, or CA number),
+          "invoiceNo": string (Invoice, receipt, tax ID, slip no., or CA number),
           "totalAmountBaht": number (Total bill amount to pay in THB),
           "vatAmountBaht": number (VAT 7% amount if specified, else 0),
-          "description": string (Summary description in Thai of items purchased or services rendered),
+          "description": string (Detailed summary description in Thai of items purchased, fuel filled, workers paid, or services rendered),
           "confidenceScore": number (0.0 to 1.0),
-          "reasoning": string (Short Thai explanation why this category was selected based on visual/textual evidence),
+          "reasoning": string (Clear Thai explanation of key keywords or visual evidence used to classify this bill into this category),
           
+          "workerCount": number (If worker_labor e.g. number of workers paid),
+          "payPeriod": string (If worker_labor e.g. "รอบ 1-15 ก.ค. 2569"),
+
+          "fuelType": string (If fuel e.g. "ดีเซล B7", "เบนซิน 95"),
+          "fuelLiters": number (If fuel liters filled),
+          "vehiclePlate": string (If fuel vehicle license plate e.g. "81-2249 นครพนม"),
+
           "caNumber": string (If electricity),
           "meterNumber": string (If electricity),
           "billingPeriod": string (If electricity e.g. "07/2569"),
@@ -945,7 +953,40 @@ function getSimulatedElectricityAnalysis() {
 function getSimulatedSmartBillAnalysis(fileName: string = '') {
   const lowerName = fileName.toLowerCase();
   
-  if (lowerName.includes('elec') || lowerName.includes('pea') || lowerName.includes('ค่าไฟ') || lowerName.includes('ไฟฟ้า')) {
+  if (lowerName.includes('labor') || lowerName.includes('worker') || lowerName.includes('salary') || lowerName.includes('wage') || lowerName.includes('ค่าแรง') || lowerName.includes('เงินเดือน') || lowerName.includes('คนงาน') || lowerName.includes('สลิป') || lowerName.includes('จ้างเหมา')) {
+    return {
+      category: "worker_labor",
+      categoryLabel: "ค่าแรงงาน",
+      vendorName: "ทีมงานจ้างเหมาแบกข้าว & แผนกแรงงานโรงสี",
+      billDate: "2026-07-28",
+      invoiceNo: "PAY-LABOR-2026/07-B",
+      totalAmountBaht: 28500.00,
+      vatAmountBaht: 0,
+      description: "ค่าแรงงานจ้างเหมาแบกยกกระสอบข้าวและค่า OT คนงานหน้าลานตาก ประจำรอบวันที่ 16-31 ก.ค. 2569",
+      confidenceScore: 0.97,
+      reasoning: "พบคีย์เวิร์ด 'ค่าแรงงาน', 'สลิปค่าจ้าง', ' OT คนงาน', และจำนวนคนงานผู้ได้รับเบี้ยเลี้ยง",
+      workerCount: 12,
+      payPeriod: "รอบ 16-31 ก.ค. 2569",
+      paymentMethod: "โอนชำระผ่านระบบบัญชีธนาคาร (PromptPay)"
+    };
+  } else if (lowerName.includes('fuel') || lowerName.includes('oil') || lowerName.includes('diesel') || lowerName.includes('ปั๊ม') || lowerName.includes('น้ำมัน') || lowerName.includes('ptt') || lowerName.includes('shell') || lowerName.includes('ดีเซล') || lowerName.includes('เบนซิน')) {
+    return {
+      category: "fuel",
+      categoryLabel: "ค่าน้ำมันเชื้อเพลิง",
+      vendorName: "สถานีบริการน้ำมัน ปตท. นครพนม (มิตรภาพ)",
+      billDate: "2026-07-29",
+      invoiceNo: "TAX-PTT-88912",
+      totalAmountBaht: 12450.00,
+      vatAmountBaht: 814.49,
+      description: "เติมค่าน้ำมันดีเซล B7 สำหรับรถบรรทุกขนส่งข้าวเปลือกและรถโฟล์คลิฟต์หน้าโรงสี",
+      confidenceScore: 0.98,
+      reasoning: "พบตราสถานีบริการน้ำมัน ปตท., ชนิดน้ำมันดีเซล B7, ปริมาณลิตร และทะเบียนรถบรรทุกขนส่ง",
+      fuelType: "น้ำมันดีเซล B7 UltraForce",
+      fuelLiters: 389.06,
+      vehiclePlate: "81-2249 นครพนม (รถบรรทุก 10 ล้อ)",
+      paymentMethod: "บัตรเครดิตองค์กร / Fleet Card"
+    };
+  } else if (lowerName.includes('elec') || lowerName.includes('pea') || lowerName.includes('ค่าไฟ') || lowerName.includes('ไฟฟ้า')) {
     return {
       category: "electricity",
       categoryLabel: "ค่าไฟฟ้า PEA",
@@ -981,7 +1022,7 @@ function getSimulatedSmartBillAnalysis(fileName: string = '') {
       replacedParts: "ตลับลูกปืน NSK 6312 2 ตลับ, สายพาน B-72 4 เส้น, ซีลยางกันน้ำมัน",
       technician: "ช่างสมหมาย & ทีมงานนครพนมกลการ"
     };
-  } else if (lowerName.includes('capex') || lowerName.includes('asset') || lowerName.includes('invest') || lowerName.includes('ก่อสร้าง') || lowerName.includes('โซล่า') || lowerName.includes('อาคาร')) {
+  } else if (lowerName.includes('capex') || lowerName.includes('asset') || lowerName.includes('invest') || lowerName.includes('ก่อสร้าง') || lowerName.includes('โซล่า') || lowerName.includes('อาคาร') || lowerName.includes('ลงทุน')) {
     return {
       category: "capex",
       categoryLabel: "รายการลงทุนเพิ่มทรัพย์สินและสิ่งปลูกสร้าง (CapEx)",
@@ -998,18 +1039,21 @@ function getSimulatedSmartBillAnalysis(fileName: string = '') {
       estimatedRoiNotes: "ช่วยลดความเสียหายข้าวเปลือกชื้นช่วงฤดูฝน เพิ่มศักยภาพรับซื้อข้าวเพิ่มขึ้น 20%"
     };
   } else {
+    // Default fallback to labor or fuel if unrecognized
     return {
-      category: "expenses_hub",
-      categoryLabel: "ข้อมูลรายจ่ายโรงสี (Expenses Hub)",
-      vendorName: "สถานีบริการน้ำมัน ปตท. นครพนม",
+      category: "worker_labor",
+      categoryLabel: "ค่าแรงงาน",
+      vendorName: "ทีมงานจ้างเหมาแบกข้าว & แผนกแรงงานโรงสี",
       billDate: "2026-07-31",
-      invoiceNo: "RECEIPT-88912",
-      totalAmountBaht: 3850.00,
-      vatAmountBaht: 251.87,
-      description: "ค่าน้ำมันดีเซล B7 สำหรับรถบรรทุกสิบล้อส่งมอบข้าวสารให้ลูกค้าล็อตใหญ่",
-      confidenceScore: 0.92,
-      reasoning: "บิลค่าน้ำมันเชื้อเพลิงและค่าใช้จ่ายดำเนินงานทั่วไปรายวันของโรงสี",
-      paymentMethod: "โอนชำระผ่านธนาคาร / QR Code"
+      invoiceNo: "PAY-LABOR-2026/07-C",
+      totalAmountBaht: 16500.00,
+      vatAmountBaht: 0,
+      description: "ค่าแรงงานประจำสัปดาห์ คนงานคัดบรรจุถุงและลงลังกระสอบข้าวสาร",
+      confidenceScore: 0.91,
+      reasoning: "ตรวจพบบันทึกการจ่ายเงินค่าจ้างรายวันและสวัสดิการแรงงานโรงสี",
+      workerCount: 8,
+      payPeriod: "ประจำสัปดาห์ที่ 4 ก.ค. 2569",
+      paymentMethod: "โอนชำระผ่านระบบบัญชีธนาคาร"
     };
   }
 }

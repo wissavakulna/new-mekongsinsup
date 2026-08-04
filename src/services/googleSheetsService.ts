@@ -1,10 +1,18 @@
-import { ElectricityExpenseRecord } from './dashboardService';
+import { 
+  ElectricityExpenseRecord,
+  WorkerLaborRecord,
+  FuelExpenseRecord,
+  MachineMaintenanceRecord,
+  CapExInvestmentRecord
+} from './dashboardService';
 
 export const DEFAULT_SPREADSHEET_ID = '1Xxr1Nz38gxRR-nQN9Zqq0zKSPb4gRkujTuKxHppVfS8';
 export const DEFAULT_SHEET_TAB_NAME = 'ค่าไฟฟ้าโรงสี';
-export const DEFAULT_EXPENSES_HUB_TAB = 'ข้อมูลรายจ่ายโรงสี';
+export const DEFAULT_EXPENSES_HUB_TAB = 'รวมรายจ่ายโรงสี';
 export const DEFAULT_MAINTENANCE_TAB = 'ประวัติค่าซ่อมบำรุงเครื่องจักรโรงสี';
-export const DEFAULT_CAPEX_TAB = 'รายการลงทุนเพิ่มทรัพย์สินและสิ่งปลูกสร้าง (CapEx)';
+export const DEFAULT_CAPEX_TAB = 'งบลงทุน';
+export const DEFAULT_WORKER_LABOR_TAB = 'ค่าแรงงานคนงาน';
+export const DEFAULT_FUEL_TAB = 'ค่าน้ำมันเชื้อเพลิง';
 
 export interface GoogleSpreadsheetInfo {
   id: string;
@@ -17,7 +25,7 @@ export interface SmartScannedBill {
   fileName: string;
   fileData?: string;
   fileType: 'image' | 'pdf';
-  category: 'electricity' | 'maintenance' | 'capex' | 'expenses_hub';
+  category: 'worker_labor' | 'fuel' | 'electricity' | 'maintenance' | 'capex';
   categoryLabel: string;
   vendorName: string;
   billDate: string;
@@ -29,6 +37,13 @@ export interface SmartScannedBill {
   reasoning?: string;
 
   // Specific category fields
+  workerCount?: number;
+  payPeriod?: string;
+
+  fuelType?: string;
+  fuelLiters?: number;
+  vehiclePlate?: string;
+
   caNumber?: string;
   meterNumber?: string;
   billingPeriod?: string;
@@ -252,6 +267,243 @@ export async function syncAllElectricityExpensesToSheet(
   }
 }
 
+export function getStoredAccessToken(): string | null {
+  try {
+    const token = localStorage.getItem('google_access_token') || localStorage.getItem('google_oauth_token');
+    if (token) return token;
+    if (typeof window !== 'undefined' && (window as any).gapi?.client?.getToken()?.access_token) {
+      return (window as any).gapi.client.getToken().access_token;
+    }
+  } catch (err) {
+    console.warn('Error reading stored token:', err);
+  }
+  return null;
+}
+
+/**
+ * Sync all Worker Labor records to Google Sheet (overwrites tab)
+ */
+export async function syncAllWorkerLaborToSheet(
+  records: WorkerLaborRecord[],
+  accessToken?: string | null,
+  spreadsheetId: string = DEFAULT_SPREADSHEET_ID,
+  tabName: string = DEFAULT_WORKER_LABOR_TAB
+): Promise<void> {
+  const token = accessToken || getStoredAccessToken();
+  if (!token) {
+    console.info('No Google access token available for live sheet sync, saved locally.');
+    return;
+  }
+  await ensureSheetTabExists(token, spreadsheetId, tabName);
+
+  const nowStr = new Date().toLocaleString('th-TH');
+  const values = [
+    WORKER_LABOR_HEADERS,
+    ...records.map(r => [
+      r.id || '',
+      r.date || '',
+      'ค่าแรงงาน',
+      r.employeeName || '',
+      1,
+      r.payCyclePeriod === '1st-15th' ? '1-15 ของเดือน' : '16-สิ้นเดือน',
+      r.totalWage || 0,
+      'โอนชำระ / เงินสด',
+      r.notes || '',
+      nowStr
+    ])
+  ];
+
+  const encodedTab = encodeURIComponent(tabName);
+  const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedTab}!A1:Z500:clear`;
+  await fetch(clearUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedTab}!A1?valueInputOption=USER_ENTERED`;
+  const res = await fetch(updateUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ values }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`บันทึกค่าแรงงานลง Google Sheets ไม่สำเร็จ: ${errText}`);
+  }
+}
+
+/**
+ * Sync all Fuel expense records to Google Sheet (overwrites tab)
+ */
+export async function syncAllFuelExpensesToSheet(
+  records: FuelExpenseRecord[],
+  accessToken?: string | null,
+  spreadsheetId: string = DEFAULT_SPREADSHEET_ID,
+  tabName: string = DEFAULT_FUEL_TAB
+): Promise<void> {
+  const token = accessToken || getStoredAccessToken();
+  if (!token) {
+    console.info('No Google access token available for live sheet sync, saved locally.');
+    return;
+  }
+  await ensureSheetTabExists(token, spreadsheetId, tabName);
+
+  const nowStr = new Date().toLocaleString('th-TH');
+  const values = [
+    FUEL_HEADERS,
+    ...records.map(r => [
+      r.id || '',
+      r.date || '',
+      r.stationName || '',
+      r.fuelType || '',
+      r.liters || 0,
+      r.vehiclePlate || '',
+      r.totalCostBaht || 0,
+      Math.round((r.totalCostBaht || 0) * 0.07 * 100) / 100,
+      r.notes || '',
+      nowStr
+    ])
+  ];
+
+  const encodedTab = encodeURIComponent(tabName);
+  const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedTab}!A1:Z500:clear`;
+  await fetch(clearUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedTab}!A1?valueInputOption=USER_ENTERED`;
+  const res = await fetch(updateUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ values }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`บันทึกค่าน้ำมันลง Google Sheets ไม่สำเร็จ: ${errText}`);
+  }
+}
+
+/**
+ * Sync all Maintenance records to Google Sheet (overwrites tab)
+ */
+export async function syncAllMaintenanceExpensesToSheet(
+  records: MachineMaintenanceRecord[],
+  accessToken?: string | null,
+  spreadsheetId: string = DEFAULT_SPREADSHEET_ID,
+  tabName: string = DEFAULT_MAINTENANCE_TAB
+): Promise<void> {
+  const token = accessToken || getStoredAccessToken();
+  if (!token) {
+    console.info('No Google access token available for live sheet sync, saved locally.');
+    return;
+  }
+  await ensureSheetTabExists(token, spreadsheetId, tabName);
+
+  const nowStr = new Date().toLocaleString('th-TH');
+  const values = [
+    MAINTENANCE_HEADERS,
+    ...records.map(r => [
+      r.id || '',
+      r.date || '',
+      r.machineName || '',
+      r.maintenanceType || '',
+      r.replacedParts || '',
+      r.technician || '',
+      r.costBaht || 0,
+      r.status || 'เสร็จสมบูรณ์',
+      r.notes || '',
+      nowStr
+    ])
+  ];
+
+  const encodedTab = encodeURIComponent(tabName);
+  const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedTab}!A1:Z500:clear`;
+  await fetch(clearUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedTab}!A1?valueInputOption=USER_ENTERED`;
+  const res = await fetch(updateUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ values }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`บันทึกค่าซ่อมบำรุงลง Google Sheets ไม่สำเร็จ: ${errText}`);
+  }
+}
+
+/**
+ * Sync all CapEx records to Google Sheet (overwrites tab)
+ */
+export async function syncAllCapexToSheet(
+  records: CapExInvestmentRecord[],
+  accessToken?: string | null,
+  spreadsheetId: string = DEFAULT_SPREADSHEET_ID,
+  tabName: string = DEFAULT_CAPEX_TAB
+): Promise<void> {
+  const token = accessToken || getStoredAccessToken();
+  if (!token) {
+    console.info('No Google access token available for live sheet sync, saved locally.');
+    return;
+  }
+  await ensureSheetTabExists(token, spreadsheetId, tabName);
+
+  const nowStr = new Date().toLocaleString('th-TH');
+  const values = [
+    CAPEX_HEADERS,
+    ...records.map(r => [
+      r.id || '',
+      r.date || '',
+      r.title || '',
+      r.category || '',
+      r.amountBaht || 0,
+      r.expectedLifespanYears || 10,
+      r.estimatedRoiNotes || '',
+      r.status || 'อนุมัติ/จ่ายแล้ว',
+      '',
+      nowStr
+    ])
+  ];
+
+  const encodedTab = encodeURIComponent(tabName);
+  const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedTab}!A1:Z500:clear`;
+  await fetch(clearUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedTab}!A1?valueInputOption=USER_ENTERED`;
+  const res = await fetch(updateUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ values }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`บันทึก CapEx ลง Google Sheets ไม่สำเร็จ: ${errText}`);
+  }
+}
+
 /**
  * Header definitions for the 3 new expense tabs
  */
@@ -281,6 +533,32 @@ export const MAINTENANCE_HEADERS = [
   'วันที่อัปเดต'
 ];
 
+export const WORKER_LABOR_HEADERS = [
+  'ID',
+  'วันที่',
+  'หมวดหมู่',
+  'รายละเอียด / การจ้างงาน',
+  'จำนวนคนงาน',
+  'รอบจ่ายเงิน',
+  'จำนวนเงิน (บาท)',
+  'วิธีชำระ',
+  'หมายเหตุ / อ้างอิงบิล',
+  'วันที่อัปเดต'
+];
+
+export const FUEL_HEADERS = [
+  'ID',
+  'วันที่',
+  'สถานีน้ำมัน / ผู้ขาย',
+  'ประเภทน้ำมัน',
+  'ปริมาณ (ลิตร)',
+  'ทะเบียนรถ',
+  'จำนวนเงิน (บาท)',
+  'ภาษี VAT (บาท)',
+  'หมายเหตุ / อ้างอิงบิล',
+  'วันที่อัปเดต'
+];
+
 export const CAPEX_HEADERS = [
   'ID',
   'วันที่',
@@ -306,14 +584,61 @@ export async function syncSmartScannedBillsToGoogleSheets(
   const errors: string[] = [];
 
   // Group bills by category
+  const workerLaborBills = bills.filter(b => b.category === 'worker_labor');
+  const fuelBills = bills.filter(b => b.category === 'fuel');
   const electricityBills = bills.filter(b => b.category === 'electricity');
-  const expensesHubBills = bills.filter(b => b.category === 'expenses_hub');
   const maintenanceBills = bills.filter(b => b.category === 'maintenance');
   const capexBills = bills.filter(b => b.category === 'capex');
 
   const nowStr = new Date().toLocaleString('th-TH');
 
-  // 1. Process Electricity Bills
+  // 1. Process Worker Labor Bills
+  if (workerLaborBills.length > 0) {
+    try {
+      await ensureSheetTabExists(accessToken, spreadsheetId, DEFAULT_WORKER_LABOR_TAB);
+      const rows = workerLaborBills.map(b => [
+        b.id || `LABOR-${Date.now()}`,
+        b.billDate || new Date().toISOString().split('T')[0],
+        b.categoryLabel || 'ค่าแรงงาน',
+        b.description || b.fileName,
+        b.workerCount || 1,
+        b.payPeriod || 'ประจำงวด',
+        b.totalAmountBaht || 0,
+        b.paymentMethod || 'โอนชำระ / เงินสด',
+        `เลขที่บิล: ${b.invoiceNo || '-'} (สแกน AI)`,
+        nowStr
+      ]);
+      await appendRowsToTab(accessToken, spreadsheetId, DEFAULT_WORKER_LABOR_TAB, WORKER_LABOR_HEADERS, rows);
+      successCount += workerLaborBills.length;
+    } catch (err: any) {
+      errors.push(`ค่าแรงงาน: ${err.message || err}`);
+    }
+  }
+
+  // 2. Process Fuel Bills
+  if (fuelBills.length > 0) {
+    try {
+      await ensureSheetTabExists(accessToken, spreadsheetId, DEFAULT_FUEL_TAB);
+      const rows = fuelBills.map(b => [
+        b.id || `FUEL-${Date.now()}`,
+        b.billDate || new Date().toISOString().split('T')[0],
+        b.vendorName || 'ปั๊มน้ำมัน',
+        b.fuelType || 'ดีเซล B7',
+        b.fuelLiters || 0,
+        b.vehiclePlate || '-',
+        b.totalAmountBaht || 0,
+        b.vatAmountBaht || 0,
+        `เลขที่บิล: ${b.invoiceNo || '-'} (${b.description || 'สแกน AI'})`,
+        nowStr
+      ]);
+      await appendRowsToTab(accessToken, spreadsheetId, DEFAULT_FUEL_TAB, FUEL_HEADERS, rows);
+      successCount += fuelBills.length;
+    } catch (err: any) {
+      errors.push(`ค่าน้ำมันเชื้อเพลิง: ${err.message || err}`);
+    }
+  }
+
+  // 3. Process Electricity Bills
   if (electricityBills.length > 0) {
     try {
       await ensureSheetTabExists(accessToken, spreadsheetId, DEFAULT_SHEET_TAB_NAME);
@@ -340,30 +665,7 @@ export async function syncSmartScannedBillsToGoogleSheets(
     }
   }
 
-  // 2. Process Expenses Hub Bills
-  if (expensesHubBills.length > 0) {
-    try {
-      await ensureSheetTabExists(accessToken, spreadsheetId, DEFAULT_EXPENSES_HUB_TAB);
-      const rows = expensesHubBills.map(b => [
-        b.id || `EXP-${Date.now()}`,
-        b.billDate || new Date().toISOString().split('T')[0],
-        b.categoryLabel || 'รายจ่ายดำเนินงานทั่วไป',
-        b.description || b.fileName,
-        b.vendorName || 'ร้านค้า / ซัพพลายเออร์',
-        b.totalAmountBaht || 0,
-        b.vatAmountBaht || 0,
-        b.paymentMethod || 'โอนชำระ / เงินสด',
-        `เลขที่บิล: ${b.invoiceNo || '-'} (สแกน AI)`,
-        nowStr
-      ]);
-      await appendRowsToTab(accessToken, spreadsheetId, DEFAULT_EXPENSES_HUB_TAB, EXPENSES_HUB_HEADERS, rows);
-      successCount += expensesHubBills.length;
-    } catch (err: any) {
-      errors.push(`ข้อมูลรายจ่ายโรงสี: ${err.message || err}`);
-    }
-  }
-
-  // 3. Process Maintenance Bills
+  // 4. Process Maintenance Bills
   if (maintenanceBills.length > 0) {
     try {
       await ensureSheetTabExists(accessToken, spreadsheetId, DEFAULT_MAINTENANCE_TAB);
@@ -386,7 +688,7 @@ export async function syncSmartScannedBillsToGoogleSheets(
     }
   }
 
-  // 4. Process CapEx Bills
+  // 5. Process CapEx Bills
   if (capexBills.length > 0) {
     try {
       await ensureSheetTabExists(accessToken, spreadsheetId, DEFAULT_CAPEX_TAB);
@@ -406,6 +708,28 @@ export async function syncSmartScannedBillsToGoogleSheets(
       successCount += capexBills.length;
     } catch (err: any) {
       errors.push(`CapEx: ${err.message || err}`);
+    }
+  }
+
+  // 6. Also sync all bills to Master V2 Tab: รวมรายจ่ายโรงสี_V2
+  if (bills.length > 0) {
+    try {
+      await ensureSheetTabExists(accessToken, spreadsheetId, DEFAULT_EXPENSES_HUB_TAB);
+      const masterRows = bills.map(b => [
+        b.id || `EXP-${Date.now()}`,
+        b.billDate || new Date().toISOString().split('T')[0],
+        b.categoryLabel || b.category,
+        b.vendorName || '-',
+        b.description || b.fileName,
+        b.totalAmountBaht || 0,
+        b.vatAmountBaht || 0,
+        b.paymentMethod || 'โอนชำระ / เงินสด',
+        b.invoiceNo || '-',
+        nowStr
+      ]);
+      await appendRowsToTab(accessToken, spreadsheetId, DEFAULT_EXPENSES_HUB_TAB, EXPENSES_HUB_HEADERS, masterRows);
+    } catch (err: any) {
+      console.warn('Failed sync to Master V2 tab:', err);
     }
   }
 
