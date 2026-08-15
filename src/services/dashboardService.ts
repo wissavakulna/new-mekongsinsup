@@ -1139,6 +1139,223 @@ export interface WorkerLaborRecord {
   payCyclePeriod: '1st-15th' | '16th-End';
 }
 
+export const THAI_MONTH_NAMES = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+];
+
+export const THAI_MONTH_SHORTS = [
+  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+];
+
+export const ENG_MONTH_SHORTS = [
+  'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
+];
+
+export const ENG_MONTH_NAMES = [
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december'
+];
+
+export interface ParsedLaborDate {
+  raw: string;
+  year: number; // e.g. 2026
+  thaiYear: number; // e.g. 2569
+  month: number; // 1-12
+  day: number; // 1-31
+  isoMonth: string; // "2026-07"
+  isoDate: string; // "2026-07-28"
+  thaiMonthName: string; // "กรกฎาคม"
+  thaiMonthShort: string; // "ก.ค."
+  thaiFullDate: string; // "28 กรกฎาคม 2569"
+  thaiMonthYear: string; // "กรกฎาคม 2569"
+  payCyclePeriod: '1st-15th' | '16th-End';
+  periodLabel: string; // e.g. "16 - 31 กรกฎาคม 2569"
+  payDate: string; // e.g. "01 สิงหาคม 2569"
+}
+
+export function parseLaborDateInfo(rawDateStr: string): ParsedLaborDate {
+  const defaultDate = new Date();
+  let year = defaultDate.getFullYear();
+  let month = defaultDate.getMonth() + 1;
+  let day = defaultDate.getDate();
+
+  if (rawDateStr && typeof rawDateStr === 'string') {
+    const rawLower = rawDateStr.toLowerCase().trim();
+    const cleanStr = rawLower.split(/[ T]/)[0]; // Remove timestamp if any
+
+    // 1. Check for Thai month names in the string
+    let foundMonthIdx = -1;
+    for (let i = 0; i < 12; i++) {
+      if (rawDateStr.includes(THAI_MONTH_NAMES[i]) || rawDateStr.includes(THAI_MONTH_SHORTS[i])) {
+        foundMonthIdx = i + 1;
+        break;
+      }
+    }
+
+    // 2. Check for English month names (e.g. 16-Jul-2026, July 2026)
+    if (foundMonthIdx === -1) {
+      for (let i = 0; i < 12; i++) {
+        const shortM = ENG_MONTH_SHORTS[i];
+        const fullM = ENG_MONTH_NAMES[i];
+        // Match word boundary or separated by - / . space
+        const regex = new RegExp(`(^|[-/._\\s])${shortM}([-/._\\s]|$)|${fullM}`, 'i');
+        if (regex.test(rawLower)) {
+          foundMonthIdx = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (foundMonthIdx > 0) {
+      month = foundMonthIdx;
+      // Extract numbers for day and year
+      const numbers = rawDateStr.match(/\d+/g);
+      if (numbers && numbers.length >= 2) {
+        day = parseInt(numbers[0]) || 1;
+        let y = parseInt(numbers[1]);
+        if (y < 100) y += 2000;
+        if (y > 2400) y -= 543;
+        if (y > 1900 && y < 2200) year = y;
+      } else if (numbers && numbers.length === 1) {
+        day = parseInt(numbers[0]) || 1;
+      }
+    } else {
+      const parts = cleanStr.split(/[/.-]/);
+      if (parts.length >= 3) {
+        const p0 = parseInt(parts[0]);
+        const p1 = parseInt(parts[1]);
+        const p2 = parseInt(parts[2]);
+
+        if (p0 > 1000) {
+          // YYYY-MM-DD
+          year = p0 > 2400 ? p0 - 543 : p0;
+          month = !isNaN(p1) && p1 >= 1 && p1 <= 12 ? p1 : month;
+          day = !isNaN(p2) && p2 >= 1 && p2 <= 31 ? p2 : day;
+        } else if (p2 > 1000) {
+          // DD/MM/YYYY
+          year = p2 > 2400 ? p2 - 543 : p2;
+          month = !isNaN(p1) && p1 >= 1 && p1 <= 12 ? p1 : month;
+          day = !isNaN(p0) && p0 >= 1 && p0 <= 31 ? p0 : day;
+        } else {
+          // Fallback D/M/YY
+          if (p0 >= 1 && p0 <= 31) day = p0;
+          if (p1 >= 1 && p1 <= 12) month = p1;
+          if (p2 > 0) year = p2 < 100 ? 2000 + p2 : (p2 > 2400 ? p2 - 543 : p2);
+        }
+      }
+    }
+  }
+
+  const thaiYear = year + 543;
+  const isoMonth = `${year}-${String(month).padStart(2, '0')}`;
+  const isoDate = `${isoMonth}-${String(day).padStart(2, '0')}`;
+  const thaiMonthName = THAI_MONTH_NAMES[month - 1] || '';
+  const thaiMonthShort = THAI_MONTH_SHORTS[month - 1] || '';
+  const thaiFullDate = `${day} ${thaiMonthName} ${thaiYear}`;
+  const thaiMonthYear = `${thaiMonthName} ${thaiYear}`;
+
+  const payCyclePeriod: '1st-15th' | '16th-End' = day <= 15 ? '1st-15th' : '16th-End';
+
+  // Last day of this month
+  const lastDayOfMonth = new Date(year, month, 0).getDate();
+
+  // Next month calculation
+  let nextMonth = month + 1;
+  let nextYear = year;
+  if (nextMonth > 12) {
+    nextMonth = 1;
+    nextYear++;
+  }
+  const nextThaiYear = nextYear + 543;
+  const nextThaiMonthName = THAI_MONTH_NAMES[nextMonth - 1];
+
+  let periodLabel = '';
+  let payDate = '';
+
+  if (payCyclePeriod === '1st-15th') {
+    periodLabel = `1 - 15 ${thaiMonthName} ${thaiYear}`;
+    payDate = `16 ${thaiMonthName} ${thaiYear}`;
+  } else {
+    periodLabel = `16 - ${lastDayOfMonth} ${thaiMonthName} ${thaiYear}`;
+    payDate = `01 ${nextThaiMonthName} ${nextThaiYear}`;
+  }
+
+  return {
+    raw: rawDateStr,
+    year,
+    thaiYear,
+    month,
+    day,
+    isoMonth,
+    isoDate,
+    thaiMonthName,
+    thaiMonthShort,
+    thaiFullDate,
+    thaiMonthYear,
+    payCyclePeriod,
+    periodLabel,
+    payDate
+  };
+}
+
+export function getCycleInfoForMonth(isoMonth: string, cycle: '1st-15th' | '16th-End' | 'all') {
+  if (!isoMonth || isoMonth === 'all') {
+    return {
+      periodLabel: cycle === '1st-15th' ? 'รอบ 1 - 15 (จ่ายวันที่ 16)' : (cycle === '16th-End' ? 'รอบ 16 - สิ้นเดือน (จ่ายวันที่ 1)' : 'รวมทุกรอบ (ประจำเดือน)'),
+      shortLabel: cycle === '1st-15th' ? 'รอบ 1-15' : (cycle === '16th-End' ? 'รอบ 16-สิ้นเดือน' : 'รวมทุกรอบ'),
+      payDate: cycle === '1st-15th' ? '16 ของเดือน' : (cycle === '16th-End' ? '1 ของเดือนถัดไป' : 'ตามรอบการทำงาน'),
+      monthName: 'ทุกเดือน',
+      thaiYear: ''
+    };
+  }
+
+  const [yStr, mStr] = isoMonth.split('-');
+  const year = parseInt(yStr) || new Date().getFullYear();
+  const month = parseInt(mStr) || (new Date().getMonth() + 1);
+  const thaiYear = year + 543;
+  const thaiMonthName = THAI_MONTH_NAMES[month - 1] || '';
+  const thaiMonthShort = THAI_MONTH_SHORTS[month - 1] || '';
+  const lastDay = new Date(year, month, 0).getDate();
+
+  let nextMonth = month + 1;
+  let nextYear = year;
+  if (nextMonth > 12) {
+    nextMonth = 1;
+    nextYear++;
+  }
+  const nextThaiYear = nextYear + 543;
+  const nextThaiMonthName = THAI_MONTH_NAMES[nextMonth - 1];
+  const nextThaiMonthShort = THAI_MONTH_SHORTS[nextMonth - 1];
+
+  if (cycle === '1st-15th') {
+    return {
+      periodLabel: `1 - 15 ${thaiMonthName} ${thaiYear}`,
+      shortLabel: `รอบ 1-15 ${thaiMonthShort} (จ่าย 16 ${thaiMonthShort})`,
+      payDate: `16 ${thaiMonthName} ${thaiYear}`,
+      monthName: thaiMonthName,
+      thaiYear: String(thaiYear)
+    };
+  } else if (cycle === '16th-End') {
+    return {
+      periodLabel: `16 - ${lastDay} ${thaiMonthName} ${thaiYear}`,
+      shortLabel: `รอบ 16-${lastDay} ${thaiMonthShort} (จ่าย 1 ${nextThaiMonthShort})`,
+      payDate: `01 ${nextThaiMonthName} ${nextThaiYear}`,
+      monthName: thaiMonthName,
+      thaiYear: String(thaiYear)
+    };
+  } else {
+    return {
+      periodLabel: `ประจำเดือน ${thaiMonthName} ${thaiYear} (รวม 2 รอบ)`,
+      shortLabel: `รวม 2 รอบ (${thaiMonthShort} ${thaiYear})`,
+      payDate: `ตามรอบตัดจ่าย (16 ${thaiMonthShort} & 1 ${nextThaiMonthShort})`,
+      monthName: thaiMonthName,
+      thaiYear: String(thaiYear)
+    };
+  }
+}
+
 function parseWorkerLaborCsvData(csvData: string, deletedIds: Set<string>): WorkerLaborRecord[] {
   const parsed = Papa.parse(csvData, { header: true, skipEmptyLines: true });
   if (!parsed.data || parsed.data.length === 0) return [];
@@ -1165,15 +1382,8 @@ function parseWorkerLaborCsvData(csvData: string, deletedIds: Set<string>): Work
 
       const recordId = row[idKey] || `labor-${idx + 1}`;
       const dateStr = row[dateKey] || '';
-      let dayNum = 15;
-      if (dateStr) {
-        const parts = dateStr.split(/[/.-]/);
-        if (parts.length > 0) {
-          const d = parseInt(parts[0]);
-          if (!isNaN(d)) dayNum = d;
-        }
-      }
-      const payCyclePeriod: '1st-15th' | '16th-End' = dayNum <= 15 ? '1st-15th' : '16th-End';
+      const dateInfo = parseLaborDateInfo(dateStr);
+      const payCyclePeriod: '1st-15th' | '16th-End' = dateInfo.payCyclePeriod;
 
       const breakHours = parseFloat(row[breakKey]?.toString().replace(/,/g, '')) || 1;
       const workHours = parseFloat(row[workHoursKey]?.toString().replace(/,/g, '')) || 8;

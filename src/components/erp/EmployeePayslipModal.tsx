@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Printer, Building2, ShieldCheck, User, FileSpreadsheet, ExternalLink, Smartphone, Image, Download, Loader2, FileText } from 'lucide-react';
+import { 
+  X, Printer, Building2, ShieldCheck, User, FileSpreadsheet, 
+  ExternalLink, Smartphone, Image, Download, Loader2, FileText, Camera 
+} from 'lucide-react';
 import { toJpeg } from 'html-to-image';
 import { WorkerLaborRecord } from '../../services/dashboardService';
 
@@ -90,6 +93,7 @@ export default function EmployeePayslipModal({ isOpen, onClose, summaryData, ini
   const [customDeduction, setCustomDeduction] = useState<number>(0);
   const [mode, setMode] = useState<'full' | 'compact'>(initialMode);
   const [isExportingJpg, setIsExportingJpg] = useState<boolean>(false);
+  const [isExportingFullJpg, setIsExportingFullJpg] = useState<boolean>(false);
 
   const slipRef = useRef<HTMLDivElement>(null);
   const compactSlipRef = useRef<HTMLDivElement>(null);
@@ -129,6 +133,36 @@ export default function EmployeePayslipModal({ isOpen, onClose, summaryData, ini
       alert('ไม่สามารถสร้างไฟล์รูปภาพ JPG ได้ กรุณาลองใหม่อีกครั้ง');
     } finally {
       setIsExportingJpg(false);
+    }
+  };
+
+  // Function to snap and download FULL A4 payslip as high-resolution JPG image (100% exact copy)
+  const handleDownloadFullA4Jpg = async () => {
+    if (!slipRef.current) return;
+    setIsExportingFullJpg(true);
+    try {
+      const dataUrl = await toJpeg(slipRef.current, {
+        quality: 0.98,
+        pixelRatio: 2.5,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+        style: {
+          borderRadius: '0px',
+          boxShadow: 'none',
+          border: '1px solid #cbd5e1',
+          margin: '0 auto',
+          backgroundColor: '#ffffff',
+        }
+      });
+      const link = document.createElement('a');
+      link.download = `สลิปเงินเดือน_ฉบับเต็ม_${summaryData.employeeName}_${summaryData.payCyclePeriod}.jpg`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Failed to export Full A4 JPG:', err);
+      alert('ไม่สามารถสร้างไฟล์รูปภาพสลิปเต็ม JPG ได้ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setIsExportingFullJpg(false);
     }
   };
 
@@ -282,13 +316,30 @@ export default function EmployeePayslipModal({ isOpen, onClose, summaryData, ini
 
           <div className="flex items-center gap-2">
             {mode === 'full' ? (
-              <button
-                onClick={handlePrint}
-                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition transform active:scale-95"
-              >
-                <Printer className="w-4 h-4" />
-                พิมพ์ / บันทึก PDF (A4)
-              </button>
+              <>
+                {/* Snap Full A4 as JPG Button */}
+                <button
+                  onClick={handleDownloadFullA4Jpg}
+                  disabled={isExportingFullJpg}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold text-xs rounded-xl shadow-md transition transform active:scale-95 disabled:opacity-50"
+                  title="ถ่ายรูปสลิปเต็มบันทึกเป็นรูปภาพ JPG คมชัดสูง 100%"
+                >
+                  {isExportingFullJpg ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Camera className="w-4 h-4" />
+                  )}
+                  {isExportingFullJpg ? 'กำลังบันทึกภาพ...' : 'Snap สลิปเต็ม (.JPG)'}
+                </button>
+
+                <button
+                  onClick={handlePrint}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition transform active:scale-95"
+                >
+                  <Printer className="w-4 h-4" />
+                  พิมพ์ / บันทึก PDF (A4)
+                </button>
+              </>
             ) : (
               <button
                 onClick={handleDownloadJpg}
@@ -696,9 +747,9 @@ export default function EmployeePayslipModal({ isOpen, onClose, summaryData, ini
         <div className="no-print bg-slate-100 px-6 py-3 border-t border-slate-200 flex flex-wrap justify-between items-center gap-2">
           <p className="text-xs text-slate-500 flex items-center gap-1">
             <ExternalLink className="w-3.5 h-3.5" />
-            {mode === 'full' ? 'พร้อมสำหรับพิมพ์เอกสาร A4 หรือบันทึก PDF' : 'พร้อมสำหรับส่งต่อสลิปเงินย่อ รูปภาพ JPG ให้พนักงานในสมาร์ทโฟน'}
+            {mode === 'full' ? 'พร้อมสำหรับพิมพ์เอกสาร A4 หรือ Snap รูปภาพ JPG สลิปเต็ม' : 'พร้อมสำหรับส่งต่อสลิปเงินย่อ รูปภาพ JPG ให้พนักงานในสมาร์ทโฟน'}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={onClose}
               className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl transition"
@@ -706,13 +757,30 @@ export default function EmployeePayslipModal({ isOpen, onClose, summaryData, ini
               ปิดหน้าต่าง
             </button>
             {mode === 'full' ? (
-              <button
-                onClick={handlePrint}
-                className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-md"
-              >
-                <Printer className="w-4 h-4" />
-                พิมพ์สลิปเงินเดือน (A4)
-              </button>
+              <>
+                {/* Bottom Snap Full A4 JPG Button */}
+                <button
+                  onClick={handleDownloadFullA4Jpg}
+                  disabled={isExportingFullJpg}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-md disabled:opacity-50"
+                  title="ถ่ายรูปสลิปเต็มบันทึกเป็นรูปภาพ JPG คมชัดสูง 100%"
+                >
+                  {isExportingFullJpg ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Camera className="w-4 h-4" />
+                  )}
+                  {isExportingFullJpg ? 'กำลังสร้างไฟล์รูปภาพ...' : 'Snap สลิปเต็ม (.JPG)'}
+                </button>
+
+                <button
+                  onClick={handlePrint}
+                  className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-md"
+                >
+                  <Printer className="w-4 h-4" />
+                  พิมพ์สลิปเงินเดือน (A4)
+                </button>
+              </>
             ) : (
               <button
                 onClick={handleDownloadJpg}

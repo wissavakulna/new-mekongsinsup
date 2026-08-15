@@ -7,7 +7,7 @@ import {
 import { 
   WorkerLaborRecord, FuelExpenseRecord, ElectricityExpenseRecord,
   MachineMaintenanceRecord, CapExInvestmentRecord, markRecordDeleted,
-  formatThaiFuelDate, deduplicateFuelRecords
+  formatThaiFuelDate, deduplicateFuelRecords, parseLaborDateInfo
 } from '../../services/dashboardService';
 import WorkerSalarySummaryView from './WorkerSalarySummaryView';
 import ElectricityTrackerView from './ElectricityTrackerView';
@@ -224,6 +224,8 @@ export default function ExpensesHubView({
     const { category, data } = editingItem;
 
     if (category === 'worker_labor') {
+      const dateInfo = parseLaborDateInfo(data.date);
+      data.payCyclePeriod = dateInfo.payCyclePeriod;
       const updated = localLabor.map(item => item.id === data.id ? data : item);
       setLocalLabor(updated);
       onUpdateWorkerLabor?.(updated);
@@ -261,6 +263,7 @@ export default function ExpensesHubView({
     const id = `exp-${Date.now()}`;
 
     if (newExpCategory === 'worker_labor') {
+      const dateInfo = parseLaborDateInfo(newExpDate);
       const newRec: WorkerLaborRecord = {
         id,
         date: newExpDate,
@@ -276,7 +279,7 @@ export default function ExpensesHubView({
         loanDeduction: 0,
         totalWage: amountNum,
         status: 'ทำงานปกติ',
-        payCyclePeriod: '1st-15th',
+        payCyclePeriod: dateInfo.payCyclePeriod,
         notes: newExpTitle || newExpPayMethod
       };
       const updated = [newRec, ...localLabor];
