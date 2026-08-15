@@ -38,9 +38,11 @@ export default function WorkerSalarySummaryView({ workerLabor, searchQuery }: Wo
     }>();
 
     workerLabor.forEach(item => {
+      const empNameClean = item.employeeName ? item.employeeName.trim().replace(/\s+/g, ' ') : 'คนงานโรงสี';
+
       // Filter by searchQuery
       const matchesSearch = 
-        item.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        empNameClean.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.date.includes(searchQuery);
 
       if (!matchesSearch) return;
@@ -65,7 +67,8 @@ export default function WorkerSalarySummaryView({ workerLabor, searchQuery }: Wo
         }
       }
 
-      const key = `${item.employeeName}_${item.payCyclePeriod}`;
+      // Group strictly by employee name
+      const key = empNameClean;
       const existing = map.get(key);
 
       if (existing) {
@@ -79,16 +82,24 @@ export default function WorkerSalarySummaryView({ workerLabor, searchQuery }: Wo
         existing.grossWageTotal += item.totalWage || (item.baseWage + item.otWage + (item.bonus || 0) - (item.loanDeduction || 0));
         existing.records.push(item);
       } else {
-        const periodLabel = item.payCyclePeriod === '1st-15th'
-          ? 'รอบ 1 - 15 (จ่ายวันที่ 16)'
-          : 'รอบ 16 - สิ้นเดือน (จ่ายวันที่ 1)';
-        const payDate = item.payCyclePeriod === '1st-15th' ? '16 ของเดือน' : '1 ของเดือนถัดไป';
+        let periodLabel = 'รวมทุกรอบ (ประจำเดือน)';
+        if (selectedCycle === '1st-15th') {
+          periodLabel = 'รอบ 1 - 15 (จ่ายวันที่ 16)';
+        } else if (selectedCycle === '16th-End') {
+          periodLabel = 'รอบ 16 - สิ้นเดือน (จ่ายวันที่ 1)';
+        } else if (item.payCyclePeriod === '1st-15th') {
+          periodLabel = 'รอบ 1 - 15 (จ่ายวันที่ 16)';
+        } else if (item.payCyclePeriod === '16th-End') {
+          periodLabel = 'รอบ 16 - สิ้นเดือน (จ่ายวันที่ 1)';
+        }
+
+        const payDate = selectedCycle === '1st-15th' ? '16 ของเดือน' : (selectedCycle === '16th-End' ? '1 ของเดือนถัดไป' : 'ตามรอบการทำงาน');
 
         map.set(key, {
-          employeeName: item.employeeName,
-          role: item.employeeName.includes('คุมตู้') ? 'ช่างคุมเครื่องขัดสี' :
-                item.employeeName.includes('ยกกระสอบ') ? 'พนักงานแบกยกคลังสินค้า' :
-                item.employeeName.includes('ช่าง') ? 'หัวหน้าช่างซ่อมบำรุง' : 'พนักงานประจำโรงสี',
+          employeeName: empNameClean,
+          role: empNameClean.includes('คุมตู้') ? 'ช่างคุมเครื่องขัดสี' :
+                empNameClean.includes('ยกกระสอบ') ? 'พนักงานแบกยกคลังสินค้า' :
+                empNameClean.includes('ช่าง') ? 'หัวหน้าช่างซ่อมบำรุง' : 'พนักงานประจำโรงสี',
           workDays: 1,
           totalWorkHours: item.workHours || 8,
           totalOtHours: item.otHours || 0,
@@ -97,7 +108,7 @@ export default function WorkerSalarySummaryView({ workerLabor, searchQuery }: Wo
           bonusTotal: item.bonus || 0,
           loanDeductionTotal: item.loanDeduction || 0,
           grossWageTotal: item.totalWage || (item.baseWage + item.otWage + (item.bonus || 0) - (item.loanDeduction || 0)),
-          payCyclePeriod: item.payCyclePeriod,
+          payCyclePeriod: selectedCycle !== 'all' ? selectedCycle : item.payCyclePeriod,
           periodLabel,
           payDate,
           records: [item]

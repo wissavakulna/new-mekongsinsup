@@ -34,7 +34,7 @@ export default function Navbar() {
   ];
 
   const dashboardLinks = [
-    { name: t.seedlingCenter, href: "https://ricenurserycenter.mekongsinsup.com", icon: <Sprout size={16} /> },
+    { name: t.seedlingCenter, href: "/dashboard/seedling", icon: <Sprout size={16} /> },
     { name: t.riceMill, href: "/dashboard/mill", icon: <Wheat size={16} /> },
     { name: "ระบบคุมงบประมาณและบุคลากรโรงสี (ERP Panel)", href: "/dashboard/erp", icon: <Coins size={16} /> },
   ];

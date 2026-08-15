@@ -20,6 +20,18 @@ export interface GoogleSpreadsheetInfo {
   sheets: string[];
 }
 
+export interface AttachedFile {
+  id: string;
+  fileName: string;
+  fileData?: string;
+  fileType: 'image' | 'pdf';
+  scannedAt: string;
+  category?: 'worker_labor' | 'fuel' | 'electricity' | 'maintenance' | 'capex';
+  vendorName?: string;
+  invoiceNo?: string;
+  description?: string;
+}
+
 export interface SmartScannedBill {
   id: string;
   fileName: string;
@@ -35,6 +47,14 @@ export interface SmartScannedBill {
   description: string;
   confidenceScore?: number | string;
   reasoning?: string;
+
+  // Duplicate Pairing & Multi-File Storage
+  attachedFiles?: AttachedFile[];
+  isDuplicateGrouped?: boolean;
+  duplicateCount?: number;
+  duplicateReason?: string;
+  conflictingCategories?: string[];
+  matchedBillIds?: string[];
 
   // Specific category fields
   workerCount?: number;
@@ -63,6 +83,116 @@ export interface SmartScannedBill {
   paymentMethod?: string;
   scannedAt: string;
   status?: 'pending' | 'synced' | 'error';
+}
+
+/**
+ * Automatically detects duplicate or complementary bill scans (e.g., slip + tax invoice or duplicate scan)
+ * preserving ALL scanned files in attachedFiles, while grouping active records to prevent double-counting.
+ */
+export function detectAndGroupDuplicateBills(bills: SmartScannedBill[]): SmartScannedBill[] {
+  if (!bills || bills.length === 0) return [];
+
+  const groups: SmartScannedBill[][] = [];
+  const processedIds = new Set<string>();
+
+  for (let i = 0; i < bills.length; i++) {
+    const b1 = bills[i];
+    if (processedIds.has(b1.id)) continue;
+
+    const currentGroup: SmartScannedBill[] = [b1];
+    processedIds.add(b1.id);
+
+    const normDate1 = String(b1.billDate || '').trim();
+    const cost1 = Math.round((Number(b1.totalAmountBaht) || 0) * 100) / 100;
+    const inv1 = String(b1.invoiceNo || '').trim();
+
+    for (let j = i + 1; j < bills.length; j++) {
+      const b2 = bills[j];
+      if (processedIds.has(b2.id)) continue;
+
+      const normDate2 = String(b2.billDate || '').trim();
+      const cost2 = Math.round((Number(b2.totalAmountBaht) || 0) * 100) / 100;
+      const inv2 = String(b2.invoiceNo || '').trim();
+
+      let isMatch = false;
+
+      // Condition 1: Same total cost (> 0) and same date
+      if (cost1 > 0 && cost1 === cost2 && normDate1 && normDate1 === normDate2) {
+        isMatch = true;
+      }
+      // Condition 2: Matching invoice number (non-placeholder) and same total cost
+      else if (inv1 && inv1 !== '-' && inv2 && inv2 !== '-' && inv1.toLowerCase() === inv2.toLowerCase()) {
+        isMatch = true;
+      }
+      // Condition 3: Same vendor name + same total cost
+      else if (cost1 > 0 && cost1 === cost2 && b1.vendorName && b2.vendorName &&
+               b1.vendorName.trim().toLowerCase() === b2.vendorName.trim().toLowerCase()) {
+        isMatch = true;
+      }
+
+      if (isMatch) {
+        currentGroup.push(b2);
+        processedIds.add(b2.id);
+      }
+    }
+
+    groups.push(currentGroup);
+  }
+
+  const consolidated: SmartScannedBill[] = groups.map(group => {
+    const allFiles: AttachedFile[] = [];
+    group.forEach(item => {
+      if (item.attachedFiles && item.attachedFiles.length > 0) {
+        item.attachedFiles.forEach(f => {
+          if (!allFiles.some(existing => existing.id === f.id || existing.fileName === f.fileName)) {
+            allFiles.push(f);
+          }
+        });
+      } else {
+        allFiles.push({
+          id: item.id,
+          fileName: item.fileName,
+          fileData: item.fileData,
+          fileType: item.fileType,
+          scannedAt: item.scannedAt,
+          category: item.category,
+          vendorName: item.vendorName,
+          invoiceNo: item.invoiceNo,
+          description: item.description
+        });
+      }
+    });
+
+    if (group.length === 1) {
+      return {
+        ...group[0],
+        attachedFiles: allFiles,
+        isDuplicateGrouped: false,
+        duplicateCount: 1
+      };
+    }
+
+    const primary = [...group].sort((a, b) => {
+      const confA = Number(a.confidenceScore) || 0;
+      const confB = Number(b.confidenceScore) || 0;
+      return confB - confA;
+    })[0];
+
+    const categories = Array.from(new Set(group.map(g => g.category)));
+    const fileNamesStr = group.map(g => g.fileName).join(', ');
+
+    return {
+      ...primary,
+      attachedFiles: allFiles,
+      isDuplicateGrouped: true,
+      duplicateCount: group.length,
+      conflictingCategories: categories,
+      matchedBillIds: group.map(g => g.id),
+      duplicateReason: `พบเอกสารจับคู่ซ้ำซ้อน ${group.length} ไฟล์ (${fileNamesStr}) มียอดเงิน ฿${primary.totalAmountBaht.toLocaleString()} และวันที่ ${primary.billDate} ตรงกัน ระบบรวมเป็น 1 รายการเพื่อป้องกันคิดเงินซ้ำ พร้อมเก็บบันทึกไฟล์แนบครบทุกไฟล์`
+    };
+  });
+
+  return consolidated;
 }
 
 /**

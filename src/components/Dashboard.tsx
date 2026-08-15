@@ -1743,18 +1743,16 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
 
       <div className="bg-white border-b border-slate-200 px-4 sm:px-8 sticky top-16 z-[999]">
         <div className="max-w-[1400px] mx-auto flex gap-4 sm:gap-8 overflow-x-auto scrollbar-none">
-          <a 
-            href="https://ricenurserycenter.mekongsinsup.com"
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link 
+            to="/dashboard/seedling"
             className={`py-4 text-xs sm:text-sm font-bold border-b-2 transition-all duration-200 no-underline flex items-center gap-1.5 shrink-0 ${
               activeTab === 'seedling' 
                 ? "border-emerald-600 text-emerald-600" 
                 : "border-transparent text-slate-400 hover:text-slate-600"
             }`}
           >
-            <Sprout size={16} className="sm:w-[18px] sm:h-[18px]" /> ศูนย์เพาะกล้าข้าว นครพนม <ExternalLink size={14} className="opacity-70" />
-          </a>
+            <Sprout size={16} className="sm:w-[18px] sm:h-[18px]" /> ศูนย์เพาะกล้าข้าว นครพนม
+          </Link>
           <Link 
             to="/dashboard/mill"
             className={`py-4 text-xs sm:text-sm font-bold border-b-2 transition-all duration-200 no-underline flex items-center gap-1.5 shrink-0 ${

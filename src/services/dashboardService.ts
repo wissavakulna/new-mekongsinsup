@@ -1139,88 +1139,100 @@ export interface WorkerLaborRecord {
   payCyclePeriod: '1st-15th' | '16th-End';
 }
 
+function parseWorkerLaborCsvData(csvData: string, deletedIds: Set<string>): WorkerLaborRecord[] {
+  const parsed = Papa.parse(csvData, { header: true, skipEmptyLines: true });
+  if (!parsed.data || parsed.data.length === 0) return [];
+
+  return (parsed.data as any[])
+    .map((rawRow, idx) => {
+      const row = cleanRowKeys(rawRow);
+      const keys = Object.keys(row);
+      const idKey = keys.find(k => k === 'ID' || k.toLowerCase().includes('id')) || '';
+      const dateKey = keys.find(k => k.includes('วันที่')) || '';
+      const nameKey = keys.find(k => k.includes('ชื่อพนักงาน') || k.includes('ชื่อ-นามสกุล') || k.includes('ชื่อ') || k.includes('พนักงาน')) || keys.find(k => k.includes('รายการ') || k.includes('รายละเอียด') || k.includes('หมวดหมู่')) || '';
+      const inKey = keys.find(k => k.includes('เวลามา') || k.includes('เวลาเข้า')) || '';
+      const outKey = keys.find(k => k.includes('เวลากลับ') || k.includes('เวลาออก')) || '';
+      const breakKey = keys.find(k => k.includes('พัก')) || '';
+      const workHoursKey = keys.find(k => k === 'ชั่วโมงทำงาน' || (k.includes('ชั่วโมง') && !k.includes('OT'))) || '';
+      const otHoursKey = keys.find(k => k.includes('ชั่วโมง OT') || k.includes('สำหรับคิดค่าแรง') || k.includes('OT')) || '';
+      const baseWageKey = keys.find(k => k.includes('ค่าแรงปกติ') || k.includes('ค่าแรง') || k.includes('จำนวนเงิน') || k.includes('ค่าจ้าง')) || '';
+      const otWageKey = keys.find(k => k.includes('ค่า OT') || k.includes('ค่าOT')) || '';
+      const bonusKey = keys.find(k => k.includes('โบนัส') || k.includes('เงินพิเศษ') || k.toLowerCase().includes('bonus')) || '';
+      const loanDeductionKey = keys.find(k => k.includes('หักเงินยืม') || k.includes('เงินยืม') || k.includes('ยืม')) || '';
+      const totalWageKey = keys.find(k => k.includes('รวมค่าจ้าง') || k.includes('ยอดจ่าย') || k.includes('รวม') || k.includes('จำนวนเงิน')) || '';
+      const statusKey = keys.find(k => k.includes('สถานะ')) || '';
+      const notesKey = keys.find(k => k.includes('หมายเหตุ')) || '';
+
+      const recordId = row[idKey] || `labor-${idx + 1}`;
+      const dateStr = row[dateKey] || '';
+      let dayNum = 15;
+      if (dateStr) {
+        const parts = dateStr.split(/[/.-]/);
+        if (parts.length > 0) {
+          const d = parseInt(parts[0]);
+          if (!isNaN(d)) dayNum = d;
+        }
+      }
+      const payCyclePeriod: '1st-15th' | '16th-End' = dayNum <= 15 ? '1st-15th' : '16th-End';
+
+      const breakHours = parseFloat(row[breakKey]?.toString().replace(/,/g, '')) || 1;
+      const workHours = parseFloat(row[workHoursKey]?.toString().replace(/,/g, '')) || 8;
+      const otHours = parseFloat(row[otHoursKey]?.toString().replace(/,/g, '')) || 0;
+      const baseWage = parseFloat(row[baseWageKey]?.toString().replace(/,/g, '')) || 400;
+      const otWage = parseFloat(row[otWageKey]?.toString().replace(/,/g, '')) || 0;
+      const bonus = parseFloat(row[bonusKey]?.toString().replace(/,/g, '')) || 0;
+      const loanDeduction = parseFloat(row[loanDeductionKey]?.toString().replace(/,/g, '')) || 0;
+      const totalWageParsed = parseFloat(row[totalWageKey]?.toString().replace(/,/g, ''));
+      const totalWage = !isNaN(totalWageParsed) && totalWageParsed !== 0 ? totalWageParsed : (baseWage + otWage + bonus - loanDeduction);
+
+      const empName = row[nameKey] ? String(row[nameKey]).trim() : 'คนงานโรงสี';
+
+      return {
+        id: String(recordId),
+        date: dateStr || new Date().toISOString().split('T')[0],
+        employeeName: empName,
+        checkInTime: row[inKey] || '08:00',
+        checkOutTime: row[outKey] || '17:00',
+        breakHours,
+        workHours,
+        otHours,
+        baseWage,
+        otWage,
+        bonus,
+        loanDeduction,
+        totalWage,
+        status: row[statusKey] || 'ทำงานปกติ',
+        notes: row[notesKey] || '',
+        payCyclePeriod
+      };
+    })
+    .filter(r => !deletedIds.has(r.id) && r.employeeName !== 'หมวดหมู่' && r.employeeName !== 'ชื่อพนักงาน');
+}
+
 export async function fetchWorkerLaborSheetData(): Promise<WorkerLaborRecord[]> {
   const category = 'worker_labor';
   const deletedIds = getDeletedRecordIds(category);
 
   const tabName = 'ค่าแรงงานคนงาน';
-  const url = `https://docs.google.com/spreadsheets/d/${EXPENSES_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+  // Try sources in order: 1) SHEET_ID with gid=264764262 2) SHEET_ID with sheet name 3) EXPENSES_SPREADSHEET_ID
+  const urls = [
+    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=264764262`,
+    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`,
+    `https://docs.google.com/spreadsheets/d/${EXPENSES_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`
+  ];
 
-  try {
-    const response = await axios.get(url);
-    const parsed = Papa.parse(response.data, { header: true, skipEmptyLines: true });
-
-    if (parsed.data && parsed.data.length > 0) {
-      const records: WorkerLaborRecord[] = (parsed.data as any[])
-        .map((rawRow, idx) => {
-          const row = cleanRowKeys(rawRow);
-          const keys = Object.keys(row);
-          const idKey = keys.find(k => k === 'ID' || k.toLowerCase().includes('id')) || '';
-          const dateKey = keys.find(k => k.includes('วันที่')) || '';
-          const nameKey = keys.find(k => k.includes('พนักงาน') || k.includes('ชื่อ') || k.includes('รายการ') || k.includes('รายละเอียด') || k.includes('หมวดหมู่')) || '';
-          const inKey = keys.find(k => k.includes('เวลามา')) || '';
-          const outKey = keys.find(k => k.includes('เวลากลับ')) || '';
-          const breakKey = keys.find(k => k.includes('พัก')) || '';
-          const workHoursKey = keys.find(k => k === 'ชั่วโมงทำงาน' || (k.includes('ชั่วโมง') && !k.includes('OT'))) || '';
-          const otHoursKey = keys.find(k => k.includes('ชั่วโมง OT') || k.includes('สำหรับคิดค่าแรง') || k.includes('OT')) || '';
-          const baseWageKey = keys.find(k => k.includes('ค่าแรงปกติ') || k.includes('ค่าแรง') || k.includes('จำนวนเงิน')) || '';
-          const otWageKey = keys.find(k => k.includes('ค่า OT') || k.includes('ค่าOT')) || '';
-          const bonusKey = keys.find(k => k.includes('โบนัส') || k.includes('เงินพิเศษ') || k.toLowerCase().includes('bonus')) || '';
-          const loanDeductionKey = keys.find(k => k.includes('หักเงินยืม') || k.includes('เงินยืม') || k.includes('ยืม')) || '';
-          const totalWageKey = keys.find(k => k.includes('รวมค่าจ้าง') || k.includes('ยอดจ่าย') || k.includes('รวม') || k.includes('จำนวนเงิน')) || '';
-          const statusKey = keys.find(k => k.includes('สถานะ')) || '';
-          const notesKey = keys.find(k => k.includes('หมายเหตุ')) || '';
-
-          const recordId = row[idKey] || `labor-${idx + 1}`;
-          const dateStr = row[dateKey] || '';
-          let dayNum = 15;
-          if (dateStr) {
-            const parts = dateStr.split(/[/.-]/);
-            if (parts.length > 0) {
-              const d = parseInt(parts[0]);
-              if (!isNaN(d)) dayNum = d;
-            }
-          }
-          const payCyclePeriod: '1st-15th' | '16th-End' = dayNum <= 15 ? '1st-15th' : '16th-End';
-
-          const breakHours = parseFloat(row[breakKey]?.toString().replace(/,/g, '')) || 1;
-          const workHours = parseFloat(row[workHoursKey]?.toString().replace(/,/g, '')) || 8;
-          const otHours = parseFloat(row[otHoursKey]?.toString().replace(/,/g, '')) || 0;
-          const baseWage = parseFloat(row[baseWageKey]?.toString().replace(/,/g, '')) || 400;
-          const otWage = parseFloat(row[otWageKey]?.toString().replace(/,/g, '')) || 0;
-          const bonus = parseFloat(row[bonusKey]?.toString().replace(/,/g, '')) || 0;
-          const loanDeduction = parseFloat(row[loanDeductionKey]?.toString().replace(/,/g, '')) || 0;
-          const totalWageParsed = parseFloat(row[totalWageKey]?.toString().replace(/,/g, ''));
-          const totalWage = !isNaN(totalWageParsed) && totalWageParsed !== 0 ? totalWageParsed : (baseWage + otWage + bonus - loanDeduction);
-
-          return {
-            id: String(recordId),
-            date: dateStr || new Date().toISOString().split('T')[0],
-            employeeName: row[nameKey] || 'คนงานโรงสี',
-            checkInTime: row[inKey] || '08:00',
-            checkOutTime: row[outKey] || '17:00',
-            breakHours,
-            workHours,
-            otHours,
-            baseWage,
-            otWage,
-            bonus,
-            loanDeduction,
-            totalWage,
-            status: row[statusKey] || 'ทำงานปกติ',
-            notes: row[notesKey] || '',
-            payCyclePeriod
-          };
-        })
-        .filter(r => !deletedIds.has(r.id) && r.employeeName !== 'หมวดหมู่');
+  for (const url of urls) {
+    try {
+      const response = await axios.get(url);
+      const records = parseWorkerLaborCsvData(response.data, deletedIds);
 
       if (records.length > 0) {
         saveCategoryRecords(category, records);
         return records;
       }
+    } catch (err) {
+      // Continue to next URL fallback
     }
-  } catch (err) {
-    console.warn('Could not fetch Worker Labor sheet, checking local storage/fallback:', err);
   }
 
   const saved = getSavedCategoryRecords<WorkerLaborRecord>(category);
@@ -1259,6 +1271,110 @@ export interface FuelExpenseRecord {
   receiptUrl?: string;
   odometerPhotoUrl?: string;
   notes?: string;
+}
+
+export function formatThaiFuelDate(rawDateStr: string): string {
+  if (!rawDateStr) return '-';
+  const str = String(rawDateStr).trim();
+
+  const THAI_MONTHS_FULL = [
+    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+  ];
+
+  const monthMap: Record<string, number> = {
+    'ม.ค.': 1, 'ก.พ.': 2, 'มี.ค.': 3, 'เม.ย.': 4, 'พ.ค.': 5, 'มิ.ย.': 6,
+    'ก.ค.': 7, 'ส.ค.': 8, 'ก.ย.': 9, 'ต.ค.': 10, 'พ.ย.': 11, 'ธ.ค.': 12,
+    'มกราคม': 1, 'กุมภาพันธ์': 2, 'มีนาคม': 3, 'เมษายน': 4, 'พฤษภาคม': 5, 'มิถุนายน': 6,
+    'กรกฎาคม': 7, 'สิงหาคม': 8, 'กันยายน': 9, 'ตุลาคม': 10, 'พฤศจิกายน': 11, 'ธันวาคม': 12,
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+  };
+
+  const lower = str.toLowerCase();
+  for (const [key, mIndex] of Object.entries(monthMap)) {
+    if (lower.includes(key)) {
+      const numbers = str.match(/\d+/g);
+      let day = 1;
+      let yearBE = 2569;
+      if (numbers && numbers.length >= 1) {
+        day = parseInt(numbers[0], 10);
+        if (numbers.length >= 2) {
+          let yr = parseInt(numbers[numbers.length - 1], 10);
+          if (yr < 2400) yr += 543;
+          yearBE = yr;
+        }
+      }
+      return `${String(day).padStart(2, '0')}/${THAI_MONTHS_FULL[mIndex - 1]}/${yearBE}`;
+    }
+  }
+
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(str)) {
+    const parts = str.split(/[-/T ]/);
+    let yr = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+    if (yr < 2400) yr += 543;
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return `${String(d).padStart(2, '0')}/${THAI_MONTHS_FULL[m - 1]}/${yr}`;
+    }
+  }
+
+  if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}/.test(str)) {
+    const parts = str.split(/[-/]/);
+    const d = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    let yr = parseInt(parts[2], 10);
+    if (yr < 2400) yr += 543;
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return `${String(d).padStart(2, '0')}/${THAI_MONTHS_FULL[m - 1]}/${yr}`;
+    }
+  }
+
+  const dObj = new Date(str);
+  if (!isNaN(dObj.getTime())) {
+    const d = dObj.getDate();
+    const m = dObj.getMonth() + 1;
+    let yr = dObj.getFullYear();
+    if (yr < 2400) yr += 543;
+    return `${String(d).padStart(2, '0')}/${THAI_MONTHS_FULL[m - 1]}/${yr}`;
+  }
+
+  return str;
+}
+
+export function deduplicateFuelRecords(records: FuelExpenseRecord[]): FuelExpenseRecord[] {
+  if (!records || !Array.isArray(records)) return [];
+
+  const seenIds = new Set<string>();
+  const seenSignatures = new Set<string>();
+  const uniqueRecords: FuelExpenseRecord[] = [];
+
+  for (const item of records) {
+    if (!item) continue;
+
+    const normId = String(item.id || '').trim();
+    const normDate = String(item.date || '').trim();
+    const normPlate = String(item.vehiclePlate || '').trim().replace(/\s+/g, '');
+    const normStation = String(item.stationName || '').trim().replace(/\s+/g, '');
+    const cost = Math.round((Number(item.totalCostBaht) || 0) * 100) / 100;
+    const liters = Math.round((Number(item.liters) || 0) * 100) / 100;
+
+    if (normId && seenIds.has(normId)) {
+      continue;
+    }
+
+    const signature = `${normDate}_${normPlate}_${cost}_${liters}_${normStation}`;
+    if (seenSignatures.has(signature)) {
+      continue;
+    }
+
+    if (normId) seenIds.add(normId);
+    seenSignatures.add(signature);
+    uniqueRecords.push(item);
+  }
+
+  return uniqueRecords;
 }
 
 export async function fetchFuelExpensesSheetData(): Promise<FuelExpenseRecord[]> {
@@ -1310,9 +1426,10 @@ export async function fetchFuelExpensesSheetData(): Promise<FuelExpenseRecord[]>
         })
         .filter(r => !deletedIds.has(r.id) && r.stationName !== 'สถานีน้ำมัน / ผู้ขาย');
 
-      if (records.length > 0) {
-        saveCategoryRecords(category, records);
-        return records;
+      const uniqueRecords = deduplicateFuelRecords(records);
+      if (uniqueRecords.length > 0) {
+        saveCategoryRecords(category, uniqueRecords);
+        return uniqueRecords;
       }
     }
   } catch (err) {
@@ -1321,10 +1438,10 @@ export async function fetchFuelExpensesSheetData(): Promise<FuelExpenseRecord[]>
 
   const saved = getSavedCategoryRecords<FuelExpenseRecord>(category);
   if (saved && saved.length > 0) {
-    return saved.filter(r => !deletedIds.has(r.id));
+    return deduplicateFuelRecords(saved.filter(r => !deletedIds.has(r.id)));
   }
 
-  return getFallbackFuelExpensesData().filter(r => !deletedIds.has(r.id));
+  return deduplicateFuelRecords(getFallbackFuelExpensesData().filter(r => !deletedIds.has(r.id)));
 }
 
 export function getFallbackFuelExpensesData(): FuelExpenseRecord[] {

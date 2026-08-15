@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   Upload,
   FileText,
@@ -21,27 +21,54 @@ import {
   X,
   ExternalLink,
   Users,
-  Truck
+  Truck,
+  Layers,
+  Link2,
+  Copy,
+  FileStack,
+  Split
 } from 'lucide-react';
-import { SmartScannedBill, syncSmartScannedBillsToGoogleSheets, DEFAULT_SPREADSHEET_ID } from '../../services/googleSheetsService';
+import { 
+  SmartScannedBill, 
+  AttachedFile,
+  detectAndGroupDuplicateBills, 
+  syncSmartScannedBillsToGoogleSheets, 
+  DEFAULT_SPREADSHEET_ID 
+} from '../../services/googleSheetsService';
 import { useGoogleAuth } from '../../services/googleAuthService';
+import { formatThaiFuelDate } from '../../services/dashboardService';
 
 export function SmartBillScannerView() {
   const { isLoggedIn, userProfile, signInWithGoogle, getAccessToken } = useGoogleAuth();
 
+  // Raw scanned bills (stores EVERY scanned file processed by AI)
   const [scannedBills, setScannedBills] = useState<SmartScannedBill[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [processingProgress, setProcessingProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  
+  // Modal State
   const [selectedBillModal, setSelectedBillModal] = useState<SmartScannedBill | null>(null);
+  const [activeFileIndex, setActiveFileIndex] = useState<number>(0);
 
   const [syncingToSheet, setSyncingToSheet] = useState<boolean>(false);
   const [syncResultMsg, setSyncResultMsg] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // File Upload Handler
+  // Automatically detect and group duplicate bills for clean accounting display
+  const deduplicatedBills = useMemo(() => {
+    return detectAndGroupDuplicateBills(scannedBills);
+  }, [scannedBills]);
+
+  // Statistics
+  const totalRawFiles = scannedBills.length;
+  const totalActiveRecords = deduplicatedBills.length;
+  const duplicateGroupedCount = deduplicatedBills.filter(b => b.isDuplicateGrouped).length;
+  const totalAmountNet = deduplicatedBills.reduce((acc, curr) => acc + curr.totalAmountBaht, 0);
+
+  // File Upload Handler (preserves EVERY file uploaded)
   const handleFilesSelected = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
@@ -128,10 +155,10 @@ export function SmartBillScannerView() {
     });
   };
 
-  // Load Preset Demo Multi-Bills covering all 5 expense categories
+  // Load Preset Demo Multi-Bills covering all 5 expense categories including a duplicate match pair
   const handleLoadSampleBatch = async () => {
     setIsProcessing(true);
-    setProcessingProgress({ current: 0, total: 5 });
+    setProcessingProgress({ current: 0, total: 6 });
 
     const samples = [
       {
@@ -166,6 +193,23 @@ export function SmartBillScannerView() {
         fuelLiters: 389.06,
         vehiclePlate: '81-2249 นครพนม (รถบรรทุก 10 ล้อ)',
         paymentMethod: 'บัตรเครดิตองค์กร / Fleet Card'
+      },
+      {
+        fileName: 'สลิปโอนเงิน_ค่าน้ำมันดีเซล_ปตท_29กค69.pdf',
+        category: 'fuel' as const,
+        categoryLabel: 'ค่าน้ำมันเชื้อเพลิง',
+        vendorName: 'สถานีบริการน้ำมัน ปตท. นครพนม (มิตรภาพ)',
+        billDate: '2026-07-29',
+        invoiceNo: 'TAX-PTT-88912',
+        totalAmountBaht: 12450.00,
+        vatAmountBaht: 814.49,
+        description: 'สลิปยืนยันการโอนเงินชำระค่าน้ำมันดีเซล B7 รถบรรทุก 10 ล้อ ผ่านธนาคารกรุงไทย',
+        confidenceScore: 0.96,
+        reasoning: 'พบหลักฐานการโอนเงิน ตรงกับใบเสร็จ TAX-PTT-88912 ยอดเงิน 12,450 บาท',
+        fuelType: 'น้ำมันดีเซล B7 UltraForce',
+        fuelLiters: 389.06,
+        vehiclePlate: '81-2249 นครพนม (รถบรรทุก 10 ล้อ)',
+        paymentMethod: 'โอนชำระผ่าน Mobile Banking'
       },
       {
         fileName: 'บิลไฟฟ้า_PEA_07_2569_โรงสี.pdf',
@@ -235,9 +279,9 @@ export function SmartBillScannerView() {
     }, 1000);
   };
 
-  // Sync to Google Sheets
+  // Sync deduplicated active records to Google Sheets
   const handleSyncToSheets = async () => {
-    if (scannedBills.length === 0) return;
+    if (deduplicatedBills.length === 0) return;
 
     let token = getAccessToken();
     if (!token) {
@@ -257,7 +301,7 @@ export function SmartBillScannerView() {
     try {
       const { successCount, errors } = await syncSmartScannedBillsToGoogleSheets(
         token,
-        scannedBills,
+        deduplicatedBills,
         DEFAULT_SPREADSHEET_ID
       );
 
@@ -269,10 +313,10 @@ export function SmartBillScannerView() {
       } else {
         setSyncResultMsg({
           type: 'success',
-          message: `บันทึกข้อมูลบิลทั้ง ${successCount} รายการลง Google Sheet (${DEFAULT_SPREADSHEET_ID}) เรียบร้อยแล้ว!`
+          message: `บันทึกข้อมูลบิลสุทธิทั้ง ${successCount} รายการ (รวมไฟล์อ้างอิงทุกฉบับ) ลง Google Sheet เรียบร้อยแล้ว!`
         });
 
-        // Mark as synced
+        // Mark raw bills as synced
         setScannedBills(prev => prev.map(b => ({ ...b, status: 'synced' })));
       }
     } catch (err: any) {
@@ -286,8 +330,15 @@ export function SmartBillScannerView() {
     }
   };
 
-  const handleDeleteBill = (id: string) => {
-    setScannedBills(prev => prev.filter(b => b.id !== id));
+  const handleDeleteBill = (id: string, matchedIds?: string[]) => {
+    if (matchedIds && matchedIds.length > 0) {
+      setScannedBills(prev => prev.filter(b => !matchedIds.includes(b.id)));
+    } else {
+      setScannedBills(prev => prev.filter(b => b.id !== id));
+    }
+    if (selectedBillModal && (selectedBillModal.id === id || (matchedIds && matchedIds.includes(selectedBillModal.id)))) {
+      setSelectedBillModal(null);
+    }
   };
 
   const handleClearAll = () => {
@@ -295,7 +346,7 @@ export function SmartBillScannerView() {
     setSyncResultMsg(null);
   };
 
-  const getCategoryLabel = (cat: string) => {
+  const getCategoryLabel = (cat?: string) => {
     switch (cat) {
       case 'worker_labor': return 'ค่าแรงงาน';
       case 'fuel': return 'น้ำมัน';
@@ -306,7 +357,7 @@ export function SmartBillScannerView() {
     }
   };
 
-  const getCategoryBadge = (cat: string) => {
+  const getCategoryBadge = (cat?: string) => {
     switch (cat) {
       case 'worker_labor':
         return (
@@ -353,18 +404,26 @@ export function SmartBillScannerView() {
     }
   };
 
-  // Filtering
-  const filteredBills = scannedBills.filter(bill => {
-    const matchesCategory = selectedCategoryFilter === 'all' || bill.category === selectedCategoryFilter;
+  // Filtering on deduplicated records
+  const filteredBills = deduplicatedBills.filter(bill => {
+    let matchesCategory = false;
+    if (selectedCategoryFilter === 'all') {
+      matchesCategory = true;
+    } else if (selectedCategoryFilter === 'duplicate_grouped') {
+      matchesCategory = !!bill.isDuplicateGrouped;
+    } else {
+      matchesCategory = bill.category === selectedCategoryFilter;
+    }
+
     const matchesSearch = searchQuery === '' ||
       bill.vendorName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       bill.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       bill.fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      bill.invoiceNo.toLowerCase().includes(searchQuery.toLowerCase());
+      bill.invoiceNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (bill.attachedFiles && bill.attachedFiles.some(f => f.fileName.toLowerCase().includes(searchQuery.toLowerCase())));
+      
     return matchesCategory && matchesSearch;
   });
-
-  const totalAmountScanned = scannedBills.reduce((acc, curr) => acc + curr.totalAmountBaht, 0);
 
   return (
     <div className="space-y-6">
@@ -375,11 +434,11 @@ export function SmartBillScannerView() {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold mb-2 border border-emerald-500/30">
               <Sparkles className="w-3.5 h-3.5 text-emerald-300 animate-pulse" />
-              AI Document Classifier (5 Expense Categories)
+              AI Smart Scanner & Auto-Deduplication Engine
             </div>
-            <h2 className="text-2xl font-bold tracking-tight">ระบบจำแนกบิลและรายจ่ายอัจฉริยะ (AI Smart Bill Scanner)</h2>
+            <h2 className="text-2xl font-bold tracking-tight">ระบบจำแนกบิลและตรวจจับบิลซ้ำซ้อนอัจฉริยะ (Smart Bill OCR)</h2>
             <p className="text-sm text-emerald-100/80 mt-1 max-w-2xl">
-              ระบบปัญญาประดิษฐ์สแกนและแยกหมวดหมู่รายจ่ายอัตโนมัติตามมาตรฐาน 5 ด้าน: <strong className="text-emerald-300">ค่าแรงงาน, น้ำมัน, ไฟฟ้า, ซ่อมบำรุง, และลงทุน (CapEx)</strong> พร้อมส่งออกข้อมูลตรงไปยัง Google Sheets
+              สแกนจำแนก 5 หมวดรายจ่ายพร้อม <strong className="text-emerald-300">ระบบตรวจจับและรวมไฟล์จับคู่ซ้ำซ้อนอัตโนมัติ (Multi-File Pairing)</strong> บันทึกเก็บไฟล์สแกนไว้ครบทุกฉบับแต่นับยอดเงินเพียง 1 ครั้ง
             </p>
           </div>
 
@@ -390,11 +449,79 @@ export function SmartBillScannerView() {
               className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-medium backdrop-blur-sm transition-all border border-white/15 flex items-center gap-2 shadow-sm"
             >
               <Sparkles className="w-4 h-4 text-emerald-400" />
-              ทดลองด้วยชุดบิลตัวอย่าง 5 หมวดรายจ่าย
+              ทดลองด้วยชุดบิลตัวอย่าง (มีบิลจับคู่ซ้ำ)
             </button>
           </div>
         </div>
       </div>
+
+      {/* Summary KPI Cards for Storage and Deduplication */}
+      {scannedBills.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ไฟล์เอกสารที่แสกนทั้งหมด</span>
+              <p className="text-xl font-bold text-slate-800 dark:text-slate-100 font-mono">
+                {totalRawFiles} <span className="text-xs font-normal text-slate-400">ไฟล์</span>
+              </p>
+            </div>
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl">
+              <FileStack className="w-5 h-5" />
+            </div>
+          </div>
+
+          <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">รายการทางบัญชีสุทธิ</span>
+              <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                {totalActiveRecords} <span className="text-xs font-normal text-slate-400">รายการ</span>
+              </p>
+            </div>
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+              <FileSpreadsheet className="w-5 h-5" />
+            </div>
+          </div>
+
+          <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">บิลจับคู่ซ้ำซ้อน (Multi-File)</span>
+              <p className="text-xl font-bold text-amber-600 dark:text-amber-400 font-mono">
+                {duplicateGroupedCount} <span className="text-xs font-normal text-slate-400">คู่รายการ</span>
+              </p>
+            </div>
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl">
+              <Layers className="w-5 h-5" />
+            </div>
+          </div>
+
+          <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between">
+            <div className="space-y-1">
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ยอดเงินรวมสุทธิ (ไม่คิดซ้ำ)</span>
+              <p className="text-lg font-bold text-slate-900 dark:text-white font-mono">
+                ฿{totalAmountNet.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+              </p>
+            </div>
+            <div className="p-3 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-xl">
+              <Receipt className="w-5 h-5" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Detection Alert Banner */}
+      {duplicateGroupedCount > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-900 dark:text-amber-200 flex items-start gap-3">
+          <Layers className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <p className="font-bold">
+              💡 ระบบ AI ตรวจพบและจับคู่บิลซ้ำซ้อนเรียบร้อยแล้ว {duplicateGroupedCount} คู่เอกสาร
+            </p>
+            <p className="text-amber-800/80 dark:text-amber-300/80 leading-relaxed">
+              ทุกไฟล์ที่แสกนถูกบันทึกจัดเก็บไว้ครบถ้วนในฐานข้อมูลอ้างอิง แต่ระบบจะรวมการลงบันทึกบัญชีเป็นเพียง 1 รายการสุทธิ เพื่อป้องกันไม่ให้คิดค่าใช้จ่ายซ้ำซ้อน
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Drag & Drop Multi-Upload Box */}
       <div
@@ -432,10 +559,10 @@ export function SmartBillScannerView() {
             <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
               {isProcessing
                 ? `กำลังวิเคราะห์เอกสาร (${processingProgress.current}/${processingProgress.total})...`
-                : 'คลิก หรือ ลากไฟล์บิล/สลิปเอกสารมาวางที่นี่'}
+                : 'คลิก หรือ ลากไฟล์บิล/สลิปเอกสารมาวางที่นี่ (รองรับหลายไฟล์พร้อมกัน)'}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              รองรับไฟล์สลิป/บิลรูปภาพ JPG, PNG, WEBP และ PDF (ระบบจะแยกหมวดหมู่ ค่าแรงงาน/น้ำมัน/ไฟฟ้า/ซ่อมบำรุง/ลงทุน อัตโนมัติ)
+              รองรับไฟล์สลิป/บิล JPG, PNG, WEBP และ PDF (AI ตรวจจับบิลซ้ำ มียอด/วันที่/เลขบิลตรงกันและจับคู่ให้อัตโนมัติ)
             </p>
           </div>
 
@@ -477,10 +604,10 @@ export function SmartBillScannerView() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-              รายการบิลสแกนสะสม ({scannedBills.length} รายการ)
+              รายการบิลสุทธิในระบบ ({deduplicatedBills.length} รายการ)
             </span>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono font-medium">
-              รวม ฿{totalAmountScanned.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+              ยอดรวม ฿{totalAmountNet.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
             </span>
           </div>
 
@@ -502,7 +629,7 @@ export function SmartBillScannerView() {
 
             <button
               onClick={handleSyncToSheets}
-              disabled={syncingToSheet || scannedBills.length === 0}
+              disabled={syncingToSheet || deduplicatedBills.length === 0}
               className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold transition-all shadow-sm flex items-center gap-2"
             >
               {syncingToSheet ? (
@@ -525,7 +652,7 @@ export function SmartBillScannerView() {
           </div>
         </div>
 
-        {/* Filters for 5 Expense Categories */}
+        {/* Filters for 5 Expense Categories + Duplicate filter */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
             <button
@@ -538,6 +665,20 @@ export function SmartBillScannerView() {
             >
               ทั้งหมด
             </button>
+
+            {duplicateGroupedCount > 0 && (
+              <button
+                onClick={() => setSelectedCategoryFilter('duplicate_grouped')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 flex items-center gap-1.5 ${
+                  selectedCategoryFilter === 'duplicate_grouped'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                🔗 จับคู่ซ้ำ ({duplicateGroupedCount})
+              </button>
+            )}
 
             <button
               onClick={() => setSelectedCategoryFilter('worker_labor')}
@@ -627,7 +768,7 @@ export function SmartBillScannerView() {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 uppercase font-semibold tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4">ไฟล์เอกสาร</th>
+                  <th className="py-3.5 px-4">ไฟล์เอกสาร & สถานะจับคู่</th>
                   <th className="py-3.5 px-4">หมวดหมู่ AI จำแนก</th>
                   <th className="py-3.5 px-4">ผู้ขาย / หน่วยงาน / ทีมงาน</th>
                   <th className="py-3.5 px-4">เลขที่บิล / อ้างอิง</th>
@@ -639,83 +780,98 @@ export function SmartBillScannerView() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
-                {filteredBills.map((bill) => (
-                  <tr key={bill.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3 px-4 font-medium flex items-center gap-2">
-                      {bill.fileType === 'pdf' ? (
-                        <FileText className="w-4 h-4 text-red-500 shrink-0" />
-                      ) : (
-                        <ImageIcon className="w-4 h-4 text-blue-500 shrink-0" />
-                      )}
-                      <span className="truncate max-w-[180px]" title={bill.fileName}>
-                        {bill.fileName}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      {getCategoryBadge(bill.category)}
-                    </td>
-                    <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-200">
-                      {bill.vendorName}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-slate-500">
-                      {bill.invoiceNo}
-                    </td>
-                    <td className="py-3 px-4">
-                      {bill.billDate}
-                    </td>
-                    <td className="py-3 px-4 text-right font-bold text-slate-900 dark:text-white font-mono">
-                      ฿{bill.totalAmountBaht.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-500">
-                      ฿{(bill.vatAmountBaht || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-4">
-                      {bill.status === 'synced' ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium text-xs">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          ซิงก์แล้ว
-                        </span>
-                      ) : (
-                        <span className="text-amber-600 dark:text-amber-400 font-medium text-xs">
-                          รอซิงก์
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => setSelectedBillModal(bill)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors"
-                          title="ดูรายละเอียดเชิงลึก"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteBill(bill.id)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                          title="ลบรายการนี้"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filteredBills.map((bill) => {
+                  const hasMultipleFiles = bill.attachedFiles && bill.attachedFiles.length > 1;
+
+                  return (
+                    <tr key={bill.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="py-3 px-4 font-medium space-y-1">
+                        <div className="flex items-center gap-2">
+                          {bill.fileType === 'pdf' ? (
+                            <FileText className="w-4 h-4 text-red-500 shrink-0" />
+                          ) : (
+                            <ImageIcon className="w-4 h-4 text-blue-500 shrink-0" />
+                          )}
+                          <span className="truncate max-w-[180px]" title={bill.fileName}>
+                            {bill.fileName}
+                          </span>
+                        </div>
+                        {hasMultipleFiles && (
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[11px] font-semibold border border-amber-500/30">
+                            <Layers className="w-3 h-3 text-amber-600" />
+                            🔗 จับคู่ {bill.attachedFiles?.length} ไฟล์อ้างอิง
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {getCategoryBadge(bill.category)}
+                      </td>
+                      <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-200">
+                        {bill.vendorName}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-500">
+                        {bill.invoiceNo}
+                      </td>
+                      <td className="py-3 px-4">
+                        {bill.category === 'fuel' ? formatThaiFuelDate(bill.billDate) : bill.billDate}
+                      </td>
+                      <td className="py-3 px-4 text-right font-bold text-slate-900 dark:text-white font-mono">
+                        ฿{bill.totalAmountBaht.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-500">
+                        ฿{(bill.vatAmountBaht || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3 px-4">
+                        {bill.status === 'synced' ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium text-xs">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            ซิงก์แล้ว
+                          </span>
+                        ) : (
+                          <span className="text-amber-600 dark:text-amber-400 font-medium text-xs">
+                            รอซิงก์
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => {
+                              setSelectedBillModal(bill);
+                              setActiveFileIndex(0);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors"
+                            title="ดูรายละเอียดเชิงลึกและไฟล์แนบ"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteBill(bill.id, bill.matchedBillIds)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                            title="ลบรายการนี้"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Bill Detail Modal */}
+      {/* Bill Detail & Multi-File Modal */}
       {selectedBillModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
               <div className="flex items-center gap-2">
                 {getCategoryBadge(selectedBillModal.category)}
                 <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">
-                  รายละเอียดบิลที่สแกน
+                  รายละเอียดบิล & เอกสารแนบอ้างอิง
                 </h3>
               </div>
               <button
@@ -725,6 +881,84 @@ export function SmartBillScannerView() {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* If duplicate paired, show AI matching notification header */}
+            {selectedBillModal.isDuplicateGrouped && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-900 dark:text-amber-200 text-xs space-y-1">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <Layers className="w-4 h-4 text-amber-600" />
+                  รายการนี้เกิดจากการจับคู่บิลซ้ำซ้อนอัตโนมัติ ({selectedBillModal.attachedFiles?.length} ไฟล์)
+                </div>
+                <p className="text-slate-600 dark:text-slate-300">
+                  {selectedBillModal.duplicateReason}
+                </p>
+              </div>
+            )}
+
+            {/* Multi-File Tab Switcher */}
+            {selectedBillModal.attachedFiles && selectedBillModal.attachedFiles.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <FileStack className="w-4 h-4 text-blue-500" />
+                  ไฟล์สลิป/บิลที่บันทึกร่วมกันในรายการนี้ ({selectedBillModal.attachedFiles.length} ไฟล์):
+                </span>
+                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {selectedBillModal.attachedFiles.map((file, idx) => (
+                    <button
+                      key={file.id || idx}
+                      onClick={() => setActiveFileIndex(idx)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                        activeFileIndex === idx
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                      }`}
+                    >
+                      {file.fileType === 'pdf' ? (
+                        <FileText className="w-3.5 h-3.5 text-red-400" />
+                      ) : (
+                        <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
+                      )}
+                      <span>ไฟล์ที่ {idx + 1}: {file.fileName}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Currently Active File Preview Card */}
+            {selectedBillModal.attachedFiles && selectedBillModal.attachedFiles[activeFileIndex] && (
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    📄 ข้อมูลไฟล์ที่กำลังดู: {selectedBillModal.attachedFiles[activeFileIndex].fileName}
+                  </span>
+                  <span className="text-slate-400 font-mono">
+                    สแกนเมื่อ: {selectedBillModal.attachedFiles[activeFileIndex].scannedAt}
+                  </span>
+                </div>
+
+                {selectedBillModal.attachedFiles[activeFileIndex].fileData ? (
+                  <div className="max-h-48 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 flex justify-center bg-slate-900/5">
+                    {selectedBillModal.attachedFiles[activeFileIndex].fileType === 'pdf' ? (
+                      <div className="p-6 text-center text-slate-500">
+                        <FileText className="w-12 h-12 mx-auto text-red-500 mb-2" />
+                        <p className="text-xs font-medium">ไฟล์เอกสาร PDF ({selectedBillModal.attachedFiles[activeFileIndex].fileName})</p>
+                      </div>
+                    ) : (
+                      <img
+                        src={selectedBillModal.attachedFiles[activeFileIndex].fileData}
+                        alt="Bill Preview"
+                        className="object-contain max-h-48"
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-lg text-center text-slate-400 text-xs">
+                    บันทึกข้อมูลหลักฐานสแกนสมบูรณ์ในระบบ
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl space-y-1">

@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import { 
   WorkerLaborRecord, FuelExpenseRecord, ElectricityExpenseRecord,
-  MachineMaintenanceRecord, CapExInvestmentRecord, markRecordDeleted
+  MachineMaintenanceRecord, CapExInvestmentRecord, markRecordDeleted,
+  formatThaiFuelDate, deduplicateFuelRecords
 } from '../../services/dashboardService';
 import WorkerSalarySummaryView from './WorkerSalarySummaryView';
 import ElectricityTrackerView from './ElectricityTrackerView';
@@ -48,12 +49,12 @@ export default function ExpensesHubView({
 
   // Synchronized Local State
   const [localLabor, setLocalLabor] = useState<WorkerLaborRecord[]>(workerLabor);
-  const [localFuel, setLocalFuel] = useState<FuelExpenseRecord[]>(fuelExpenses);
+  const [localFuel, setLocalFuel] = useState<FuelExpenseRecord[]>(() => deduplicateFuelRecords(fuelExpenses));
   const [localMaint, setLocalMaint] = useState<MachineMaintenanceRecord[]>(maintenanceExpenses);
   const [localCapex, setLocalCapex] = useState<CapExInvestmentRecord[]>(capexInvestments);
 
   useEffect(() => { setLocalLabor(workerLabor); }, [workerLabor]);
-  useEffect(() => { setLocalFuel(fuelExpenses); }, [fuelExpenses]);
+  useEffect(() => { setLocalFuel(deduplicateFuelRecords(fuelExpenses)); }, [fuelExpenses]);
   useEffect(() => { setLocalMaint(maintenanceExpenses); }, [maintenanceExpenses]);
   useEffect(() => { setLocalCapex(capexInvestments); }, [capexInvestments]);
 
@@ -158,7 +159,7 @@ export default function ExpensesHubView({
       kmPerLiter: scannedFuelResult.kmPerLiter || 3.5,
       costPerKm: scannedFuelResult.costPerKm || 8.5
     };
-    const updated = [newRecord, ...localFuel];
+    const updated = deduplicateFuelRecords([newRecord, ...localFuel]);
     setLocalFuel(updated);
     onUpdateFuelExpenses?.(updated);
     showNotice(`เพิ่มรายการค่าน้ำมัน ฿${newRecord.totalCostBaht.toLocaleString()} เข้าตารางเรียบร้อยแล้ว`);
@@ -298,7 +299,7 @@ export default function ExpensesHubView({
         kmPerLiter: 3.5,
         costPerKm: parseFloat((amountNum / 350).toFixed(2))
       };
-      const updated = [newRec, ...localFuel];
+      const updated = deduplicateFuelRecords([newRec, ...localFuel]);
       setLocalFuel(updated);
       onUpdateFuelExpenses?.(updated);
     } else if (newExpCategory === 'maintenance') {
@@ -968,9 +969,9 @@ export default function ExpensesHubView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {localFuel.map((row) => (
+                  {deduplicateFuelRecords(localFuel).map((row) => (
                     <tr key={row.id} className="hover:bg-slate-50 transition">
-                      <td className="p-3 font-mono text-slate-500">{row.date}</td>
+                      <td className="p-3 font-semibold text-slate-800 whitespace-nowrap">{formatThaiFuelDate(row.date)}</td>
                       <td className="p-3 font-semibold text-slate-900">{row.vehiclePlate}</td>
                       <td className="p-3 text-slate-600">{row.stationName}</td>
                       <td className="p-3 text-right font-semibold text-slate-800">{row.liters} ลิตร</td>
