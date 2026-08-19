@@ -6,9 +6,10 @@ import {
 import { MapContainer, TileLayer, Marker, Popup, Polygon, useMap, CircleMarker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { ArrowLeft, Wheat, Sprout, Loader2, Coins, HandCoins, Warehouse, Users, UserPlus, Search, UserCheck, MapPin, Briefcase, Calendar, Scale, Maximize2, Camera, CameraOff, ChevronRight, X, ArrowRight, Lock, ShieldCheck, ExternalLink, Database, LayoutGrid, List, Sparkles, Info, RotateCw, Trash2, PlusCircle, BookOpen, Save, CheckCircle } from "lucide-react";
+import { ArrowLeft, Wheat, Sprout, Loader2, Coins, HandCoins, Warehouse, Users, UserPlus, Search, UserCheck, MapPin, Briefcase, Calendar, Scale, Maximize2, Camera, CameraOff, ChevronRight, X, ArrowRight, Lock, ShieldCheck, ExternalLink, Database, LayoutGrid, List, Sparkles, Info, RotateCw, Trash2, PlusCircle, BookOpen, Save, CheckCircle, Printer, FileText, Image as ImageIcon, Smartphone } from "lucide-react";
 import { fetchMillData, MillRecord, fetchPointsData, PointsRecord, fetchMemberData, MemberRecord } from "../services/dashboardService";
 import ErpDashboard from "./ErpDashboard";
+import CustomerServiceHistoryReportModal from "./CustomerServiceHistoryReportModal";
 import { initAuth, googleSignIn, logoutGoogle, syncJobToGoogleSheets } from "../lib/firebaseAuth";
 
 // Fix for default marker icon in react-leaflet
@@ -192,6 +193,8 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
   const [memberFilterDate, setMemberFilterDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [memberSearchQuery, setMemberSearchQuery] = useState<string>('');
   const [searchedMemberResult, setSearchedMemberResult] = useState<MemberRecord | null>(null);
+  const [isCustomerReportOpen, setIsCustomerReportOpen] = useState<boolean>(false);
+  const [customerReportMode, setCustomerReportMode] = useState<'full' | 'compact'>('full');
   const [selectedJobIndex, setSelectedJobIndex] = useState<number>(0);
   const [aiAnalysisResult, setAiAnalysisResult] = useState<any>(null);
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState<boolean>(false);
@@ -2542,10 +2545,56 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
                     <motion.div 
                       initial={{ opacity: 0, y: 15 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto"
+                      className="max-w-4xl mx-auto space-y-5"
                     >
-                      {/* Customer Card Profile */}
-                      <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-4">
+                      {/* Customer Dossier Action Header Banner */}
+                      <div className="bg-gradient-to-r from-amber-900 via-orange-900 to-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-amber-600/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="p-1.5 bg-amber-500/20 text-amber-300 rounded-lg border border-amber-500/30">
+                              <FileText className="w-4 h-4" />
+                            </span>
+                            <h5 className="font-extrabold text-sm sm:text-base text-white tracking-wide">
+                              รายงานประวัติการใช้บริการและแต้มสะสม
+                            </h5>
+                          </div>
+                          <p className="text-xs text-amber-200/80 leading-relaxed">
+                            ออกรายงานฉบับเต็มพิมพ์บนกระดาษ A4 หรือแบบสรุปย่อขนาดกะทัดรัดสำหรับดูผ่านสมาร์ทโฟน / ส่งทาง LINE
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                          <button
+                            onClick={() => {
+                              setCustomerReportMode('compact');
+                              setIsCustomerReportOpen(true);
+                            }}
+                            className="flex-1 sm:flex-none px-3.5 py-2.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-extrabold text-xs rounded-xl shadow-md transition-all transform active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer border border-sky-400/40"
+                            id="btn-open-customer-compact-report"
+                            title="พิมพ์แบบสรุปโดยย่อ สำหรับดูผ่านสมาร์ทโฟนได้อย่างสบายตา"
+                          >
+                            <Smartphone className="w-4 h-4" />
+                            <span>สรุปย่อสมาร์ทโฟน</span>
+                          </button>
+                          
+                          <button
+                            onClick={() => {
+                              setCustomerReportMode('full');
+                              setIsCustomerReportOpen(true);
+                            }}
+                            className="flex-1 sm:flex-none px-3.5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-extrabold text-xs rounded-xl shadow-md transition-all transform active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer border border-amber-400/40"
+                            id="btn-open-customer-a4-report"
+                            title="พิมพ์รายงานฉบับเต็ม A4 หรือบันทึกเป็นรูปภาพ JPG"
+                          >
+                            <Printer className="w-4 h-4" />
+                            <span>รายงานฉบับเต็ม (A4)</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Customer Card Profile */}
+                        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-4">
                         <div className="flex items-center gap-3">
                           {searchedMemberResult.profilePic ? (
                             <img 
@@ -2664,8 +2713,9 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
                           </div>
                         )}
                       </div>
+                    </div>
 
-                      {/* Interactive Section for Raw Rice Milling Photos and Outbound Weights */}
+                    {/* Interactive Section for Raw Rice Milling Photos and Outbound Weights */}
                       {searchedMemberCrossInfo && searchedMemberCrossInfo.jobsList.length > 0 && (
                         <div className="col-span-1 md:col-span-3 mt-6 sm:mt-8 bg-slate-50/50 rounded-2xl p-4 sm:p-6 border border-slate-200">
                           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-200">
@@ -2679,9 +2729,34 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
                               </p>
                             </div>
                             
-                            <div className="flex items-center gap-2 text-[10px] sm:text-xs bg-white py-1 px-3 rounded-full border border-slate-200 shadow-sm font-bold text-slate-600 shrink-0 self-start md:self-auto">
-                              <span>ประวัติบริการทั้งหมด:</span>
-                              <span className="text-orange-600">{searchedMemberCrossInfo.jobsList.length} ครั้ง</span>
+                            <div className="flex flex-wrap items-center gap-2 shrink-0 self-start md:self-auto">
+                              <button
+                                onClick={() => {
+                                  setCustomerReportMode('compact');
+                                  setIsCustomerReportOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-bold text-xs rounded-xl shadow-xs transition-transform active:scale-95 cursor-pointer"
+                                title="พิมพ์แบบสรุปโดยย่อ สำหรับดูผ่านสมาร์ทโฟนได้อย่างสบายตา"
+                              >
+                                <Smartphone className="w-3.5 h-3.5" />
+                                <span>สรุปย่อสมาร์ทโฟน</span>
+                              </button>
+                              
+                              <button
+                                onClick={() => {
+                                  setCustomerReportMode('full');
+                                  setIsCustomerReportOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs rounded-xl shadow-xs transition-transform active:scale-95 cursor-pointer"
+                                title="พิมพ์ข้อมูลการใช้บริการทั้งหมดลงบนกระดาษ A4 พร้อมรูปภาพข้าว"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>รายงานเต็ม A4</span>
+                              </button>
+                              <div className="flex items-center gap-1.5 text-[10px] sm:text-xs bg-white py-1 px-3 rounded-xl border border-slate-200 shadow-sm font-bold text-slate-600">
+                                <span>ประวัติ:</span>
+                                <span className="text-orange-600">{searchedMemberCrossInfo.jobsList.length} ครั้ง</span>
+                              </div>
                             </div>
                           </div>
 
@@ -5198,6 +5273,15 @@ function updateAllImageLinksFast() {
           </div>
         </div>
       )}
+
+      {/* Customer Service History Report Modal */}
+      <CustomerServiceHistoryReportModal
+        isOpen={isCustomerReportOpen}
+        onClose={() => setIsCustomerReportOpen(false)}
+        member={searchedMemberResult}
+        crossInfo={searchedMemberCrossInfo}
+        initialMode={customerReportMode}
+      />
     </div>
   );
 }

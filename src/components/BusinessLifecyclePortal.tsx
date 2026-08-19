@@ -377,7 +377,7 @@ export default function BusinessLifecyclePortal() {
   const routesMap = [
     "/dashboard/seedling",
     "https://ricenurserycenter.mekongsinsup.com/",
-    "/dashboard/erp",
+    "https://ricenurserycenter.mekongsinsup.com/?page=fertilizer",
     "/dashboard/mill"
   ];
 
@@ -405,8 +405,8 @@ export default function BusinessLifecyclePortal() {
       icon: "📡",
       badge: langSubUnits[1].badge,
       color: "from-blue-700 to-indigo-900",
-      link: "/dashboard/erp",
-      isExternal: false
+      link: "https://ricenurserycenter.mekongsinsup.com/?page=fertilizer",
+      isExternal: true
     },
     {
       title: langSubUnits[2].title,
@@ -464,10 +464,12 @@ export default function BusinessLifecyclePortal() {
               />
 
               {/* Hotspot 3: ต้นแตกกองาม */}
-              <button
-                onClick={() => navigate('/dashboard/erp')}
-                className="pointer-events-auto h-full w-full hover:bg-blue-500/10 transition-all cursor-pointer"
-                title="ระยะที่ 3: ต้นแตกกองาม (คลิกเพื่อเข้าสู่ Mekong Precision Agritech)"
+              <a
+                href="https://ricenurserycenter.mekongsinsup.com/?page=fertilizer"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="pointer-events-auto h-full w-full hover:bg-blue-500/10 transition-all cursor-pointer block"
+                title="ระยะที่ 3: ต้นแตกกองาม (คลิกเพื่อเข้าสู่ระบบคำนวณปุ๋ยแม่นยำ)"
               />
 
               {/* Hotspot 4: ข้าวสารสะอาด */}
