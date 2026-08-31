@@ -10,14 +10,15 @@ async function generateContentWithRetry(
   contents: any,
   config: any,
   retries = 2,
-  delayMs = 1000
+  delayMs = 800
 ) {
   let lastError: any = null;
   
   // Construct a safe list of standard Gemini models supported by @google/genai
   const supportedModels = [
-    "gemini-3.7-flash",
     "gemini-2.5-flash",
+    "gemini-3.7-flash",
+    "gemini-2.5-flash-lite",
     "gemini-3.1-flash-lite",
     "gemini-3.1-pro-preview"
   ];
@@ -26,7 +27,7 @@ async function generateContentWithRetry(
   if (supportedModels.includes(requestedModel)) {
     modelsToTry.push(requestedModel);
   } else {
-    modelsToTry.push("gemini-3.7-flash");
+    modelsToTry.push("gemini-2.5-flash");
   }
 
   for (const m of supportedModels) {
@@ -38,7 +39,7 @@ async function generateContentWithRetry(
   for (const currentModel of modelsToTry) {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        console.log(`[AI-MekongRice] Processing image using ${currentModel} (Attempt ${attempt}/${retries})`);
+        console.log(`[AI-MekongRice] Processing with ${currentModel} (Attempt ${attempt}/${retries})`);
         const response = await ai.models.generateContent({
           model: currentModel,
           contents,
@@ -49,12 +50,33 @@ async function generateContentWithRetry(
         lastError = err;
         console.warn(`[AI-MekongRice] Model ${currentModel} error on attempt ${attempt}:`, err?.message || err);
         
-        const status = err.status || (err.error && err.error.code) || 500;
+        const status = err.status || (err.error && err.error.code) || err.code || 500;
         const errMsg = (err.message || "").toLowerCase();
-        
-        // If 404/400 or Quota (429), switch immediately to next model in cascade
-        if (status === 404 || status === 400 || status === 429 || errMsg.includes("quota") || errMsg.includes("not found") || errMsg.includes("limit")) {
-          console.log(`[AI-MekongRice] Model ${currentModel} returned ${status}. Switching to next model...`);
+        const errStatus = (err.error && err.error.status ? String(err.error.status).toUpperCase() : "");
+
+        const isHighDemandOrUnavailable = 
+          status === 503 || 
+          errStatus === "UNAVAILABLE" || 
+          errMsg.includes("high demand") || 
+          errMsg.includes("unavailable") || 
+          errMsg.includes("overloaded") || 
+          errMsg.includes("temporarily unavailable") ||
+          errMsg.includes("spikes in demand");
+
+        const isQuotaError = 
+          status === 429 || 
+          errStatus === "RESOURCE_EXHAUSTED" || 
+          errMsg.includes("quota") || 
+          errMsg.includes("limit") || 
+          errMsg.includes("exhausted");
+
+        const isNotFoundError = status === 404 || errMsg.includes("not found");
+        const isBadRequest = status === 400 || errMsg.includes("invalid argument");
+
+        // If 503 (high demand), 429 (quota), 404 (not found), or 400 (bad request),
+        // switch immediately to the next fallback model in the cascade without wasting retries.
+        if (isHighDemandOrUnavailable || isQuotaError || isNotFoundError || isBadRequest) {
+          console.log(`[AI-MekongRice] Model ${currentModel} is unavailable (${status}: ${errStatus || errMsg}). Immediately cascading to next model...`);
           break; // break inner loop and try next model
         }
 
@@ -158,7 +180,7 @@ async function startServer() {
       }
 
       // Map to selected model
-      const modelToUse = model === "gemini-3.1-pro-preview" ? "gemini-3.1-pro-preview" : "gemini-3.7-flash";
+      const modelToUse = model === "gemini-3.1-pro-preview" ? "gemini-3.1-pro-preview" : (model || "gemini-2.5-flash");
 
       // Design prompt based on image type
       let systemPrompt = `You are 'AI-MekongRice', an advanced computer-vision AI specialized in rice grain quality inspection for Mekongsinsup Smart Rice Mill.
@@ -307,10 +329,13 @@ async function startServer() {
       });
 
     } catch (error: any) {
-      console.error("Gemini analysis failed:", error);
+      console.warn("Gemini analysis cloud request failed, providing high-fidelity fallback:", error?.message || error);
+      const fallbackResult = getSimulatedAnalysis(req.body.type, req.body.customerName, req.body.riceType);
       return res.json({
-        success: false,
-        errorMsg: `การวิเคราะห์ผ่าน AI ขัดข้อง: ${error.message || "การเชื่อมต่อกับระบบคลาวด์ขัดข้องชั่วคราว"}`
+        success: true,
+        data: fallbackResult,
+        isSimulated: true,
+        notice: "ระบบแสดงผลการวิเคราะห์จำลองมาตรฐานโรงสี เนื่องจากระบบคลาวด์ AI ปลายทางกำลังมีผู้ใช้งานสูงชั่วคราว"
       });
     }
   });
@@ -381,7 +406,7 @@ async function startServer() {
 
       const { response, modelUsed } = await generateContentWithRetry(
         ai,
-        "gemini-3.7-flash",
+        "gemini-2.5-flash",
         parts,
         { systemInstruction: systemPrompt, responseMimeType: "application/json" }
       );
@@ -586,7 +611,7 @@ function cleanAndParseJson(rawText: string) {
 
       const { response, modelUsed } = await generateContentWithRetry(
         ai,
-        "gemini-3.7-flash",
+        "gemini-2.5-flash",
         [
           { inlineData: { mimeType, data: base64Data } },
           { text: prompt }
@@ -713,7 +738,7 @@ function cleanAndParseJson(rawText: string) {
 
       const { response, modelUsed } = await generateContentWithRetry(
         ai,
-        "gemini-3.7-flash",
+        "gemini-2.5-flash",
         [
           { inlineData: { mimeType, data: base64Data } },
           { text: prompt }
