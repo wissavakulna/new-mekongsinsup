@@ -10,7 +10,7 @@ import {
   ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis, 
   CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts';
-import { ElectricityExpenseRecord } from '../../services/dashboardService';
+import { ElectricityExpenseRecord, normalizeBillingPeriod } from '../../services/dashboardService';
 import { PeaBillFullDetailsModal } from './PeaBillFullDetailsModal';
 import { User } from 'firebase/auth';
 import { 
@@ -261,7 +261,7 @@ export default function ElectricityTrackerView({
       rawList = Array.from(mergedMap.values());
     }
 
-    // Sanitize list to ensure guaranteed unique IDs across all items
+    // Sanitize list to ensure guaranteed unique IDs and self-heal any corrupted zero values
     const seenIds = new Set<string>();
     return rawList.map((r, idx) => {
       let safeId = r.id;
@@ -269,7 +269,30 @@ export default function ElectricityTrackerView({
         safeId = `elec-clean-${r.billingPeriod ? r.billingPeriod.replace('/', '-') : idx}-${idx}`;
       }
       seenIds.add(safeId);
-      return { ...r, id: safeId };
+
+      const normalizedPeriod = normalizeBillingPeriod(r.billingPeriod || '01/2569');
+      const peakUnitsKwh = Number(r.peakUnitsKwh) || 0;
+      const offPeakUnitsKwh = Number(r.offPeakUnitsKwh) || 0;
+      let totalUnitsKwh = Number(r.totalUnitsKwh) || 0;
+      if (totalUnitsKwh <= 0) {
+        totalUnitsKwh = peakUnitsKwh + offPeakUnitsKwh;
+      }
+      let totalAmountBaht = Number(r.totalAmountBaht) || 0;
+      if (totalAmountBaht <= 0 && totalUnitsKwh > 0) {
+        totalAmountBaht = parseFloat((totalUnitsKwh * 5.8).toFixed(2));
+      }
+
+      return {
+        ...r,
+        id: safeId,
+        billingPeriod: normalizedPeriod,
+        totalUnitsKwh,
+        totalAmountBaht,
+        peakUnitsKwh,
+        offPeakUnitsKwh,
+        peakAmountBaht: r.peakAmountBaht || parseFloat((peakUnitsKwh * 4.1839).toFixed(2)),
+        offPeakAmountBaht: r.offPeakAmountBaht || parseFloat((offPeakUnitsKwh * 2.6037).toFixed(2))
+      };
     });
   });
 
@@ -446,7 +469,8 @@ export default function ElectricityTrackerView({
 
   const parseSortKey = (p: string): number => {
     if (!p) return 0;
-    const parts = p.split('/');
+    const normalized = normalizeBillingPeriod(p);
+    const parts = normalized.split('/');
     if (parts.length === 2) {
       const m = parseInt(parts[0], 10) || 1;
       let y = parseInt(parts[1], 10) || 2026;

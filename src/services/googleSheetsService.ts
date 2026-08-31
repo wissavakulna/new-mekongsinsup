@@ -3,8 +3,17 @@ import {
   WorkerLaborRecord,
   FuelExpenseRecord,
   MachineMaintenanceRecord,
-  CapExInvestmentRecord
+  CapExInvestmentRecord,
+  normalizeBillingPeriod
 } from './dashboardService';
+
+export function parseSheetNumber(val: any): number {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (!val) return 0;
+  const str = String(val).replace(/,/g, '').replace(/[฿\s]/g, '').trim();
+  const parsed = parseFloat(str);
+  return isNaN(parsed) ? 0 : parsed;
+}
 
 export const DEFAULT_SPREADSHEET_ID = '1Xxr1Nz38gxRR-nQN9Zqq0zKSPb4gRkujTuKxHppVfS8';
 export const DEFAULT_SHEET_TAB_NAME = 'ค่าไฟฟ้าโรงสี';
@@ -303,23 +312,37 @@ function recordToRow(r: ElectricityExpenseRecord): (string | number)[] {
  * Convert Google Sheet row to ElectricityExpenseRecord
  */
 function rowToRecord(row: any[], index: number): ElectricityExpenseRecord {
+  const billingPeriodRaw = row[1] ? String(row[1]).trim() : '01/2569';
+  const billingPeriod = normalizeBillingPeriod(billingPeriodRaw);
+
+  const totalAmountBaht = parseSheetNumber(row[4]);
+  const totalUnitsKwhRaw = parseSheetNumber(row[5]);
+  const peakUnitsKwh = parseSheetNumber(row[6]);
+  const offPeakUnitsKwh = parseSheetNumber(row[7]);
+  const peakDemandKw = parseSheetNumber(row[8]);
+  const ftTotalBaht = parseSheetNumber(row[9]);
+  const powerFactorPenaltyBaht = parseSheetNumber(row[10]);
+  const vatAmountBaht = parseSheetNumber(row[11]);
+
+  const totalUnitsKwh = totalUnitsKwhRaw > 0 ? totalUnitsKwhRaw : (peakUnitsKwh + offPeakUnitsKwh);
+
   return {
     id: row[0] ? String(row[0]) : `elec-gsheet-${index}`,
-    billingPeriod: row[1] ? String(row[1]) : '01/2026',
-    caNumber: row[2] ? String(row[2]) : '020001849201',
-    meterNumber: row[3] ? String(row[3]) : '7718920',
-    totalAmountBaht: Number(row[4]) || 0,
-    totalUnitsKwh: Number(row[5]) || 0,
-    peakUnitsKwh: Number(row[6]) || 0,
-    offPeakUnitsKwh: Number(row[7]) || 0,
-    peakDemandKw: Number(row[8]) || 0,
-    ftTotalBaht: Number(row[9]) || 0,
-    powerFactorPenaltyBaht: Number(row[10]) || 0,
-    vatAmountBaht: Number(row[11]) || 0,
+    billingPeriod,
+    caNumber: row[2] ? String(row[2]).trim() : '20029119125',
+    meterNumber: row[3] ? String(row[3]).trim() : '6300584313',
+    totalAmountBaht: totalAmountBaht > 0 ? totalAmountBaht : parseFloat((totalUnitsKwh * 5.8).toFixed(2)),
+    totalUnitsKwh,
+    peakUnitsKwh,
+    offPeakUnitsKwh,
+    peakDemandKw,
+    ftTotalBaht,
+    powerFactorPenaltyBaht,
+    vatAmountBaht: vatAmountBaht > 0 ? vatAmountBaht : Math.round(totalAmountBaht * 0.07 * 100) / 100,
     efficiencyAnalysis: row[12] ? String(row[12]) : '',
     ftRatePerUnit: 0.3972,
-    peakAmountBaht: (Number(row[6]) || 0) * 4.32,
-    offPeakAmountBaht: (Number(row[7]) || 0) * 2.63
+    peakAmountBaht: parseFloat((peakUnitsKwh * 4.1839).toFixed(2)),
+    offPeakAmountBaht: parseFloat((offPeakUnitsKwh * 2.6037).toFixed(2))
   };
 }
 
