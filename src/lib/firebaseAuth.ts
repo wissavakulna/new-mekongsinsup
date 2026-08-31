@@ -70,6 +70,18 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Sign in error:', error);
+    const code = error?.code || '';
+    const currentDomain = typeof window !== 'undefined' ? window.location.hostname : '';
+    
+    if (code === 'auth/unauthorized-domain' || error?.message?.includes('unauthorized-domain')) {
+      throw new Error(`โดเมน ${currentDomain} ยังไม่ได้รับอนุญาตใน Firebase Authentication (auth/unauthorized-domain)\n👉 วิธีแก้ไข: ไปที่ Firebase Console (โปรเจกต์ rc222-2499b) -> Authentication -> Settings -> Authorized Domains แล้วกด 'Add domain' ระบุ ${currentDomain}`);
+    } else if (code === 'auth/popup-blocked') {
+      throw new Error('เบราว์เซอร์บล็อกหน้าต่าง Pop-up สำหรับเข้าสู่ระบบ Google กรุณาอนุญาต Pop-up สำหรับเว็บไซต์นี้');
+    } else if (code === 'auth/popup-closed-by-user') {
+      throw new Error('หน้าต่างเข้าสู่ระบบ Google ถูกปิดก่อนการยืนยันตัวตนเสร็จสมบูรณ์');
+    } else if (code === 'auth/cancelled-popup-request') {
+      throw new Error('การเชื่อมต่อถูกยกเลิกเนื่องจากมีคำขอซ้อนกัน กรุณากดใหม่อีกครั้ง');
+    }
     throw error;
   } finally {
     isSigningIn = false;
