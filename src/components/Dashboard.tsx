@@ -202,7 +202,7 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
   const [aiAnalysisActiveType, setAiAnalysisActiveType] = useState<string | null>(null);
   const [hoveredBoxIdx, setHoveredBoxIdx] = useState<number | null>(null);
   const [showBoundingBoxes, setShowBoundingBoxes] = useState<boolean>(true);
-  const [aiSelectedModel, setAiSelectedModel] = useState<string>("gemini-3.5-flash");
+  const [aiSelectedModel, setAiSelectedModel] = useState<string>("gemini-3.7-flash");
   const [isVisionZoomOpen, setIsVisionZoomOpen] = useState<boolean>(false);
 
   // States for Google Sheets OAuth and Sync
@@ -2924,14 +2924,14 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
                                         </div>
                                         <div className="flex bg-slate-200/70 p-1 rounded-lg self-start sm:self-center shrink-0">
                                           <button
-                                            onClick={() => setAiSelectedModel('gemini-3.5-flash')}
+                                            onClick={() => setAiSelectedModel('gemini-3.7-flash')}
                                             className={`text-[10px] font-black px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                                              aiSelectedModel === 'gemini-3.5-flash'
+                                              aiSelectedModel === 'gemini-3.7-flash'
                                                 ? 'bg-white text-slate-800 shadow-xs'
                                                 : 'text-slate-500 hover:text-slate-700'
                                             }`}
                                           >
-                                            มาตรฐาน (Flash)
+                                            มาตรฐาน (3.7 Flash)
                                           </button>
                                           <button
                                             onClick={() => setAiSelectedModel('gemini-3.1-pro-preview')}
