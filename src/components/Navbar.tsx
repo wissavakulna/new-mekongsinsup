@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Wheat, Sprout, ChevronDown, Languages, Check, Coins } from "lucide-react";
+import { Wheat, Sprout, ChevronDown, Languages, Check, Coins, Settings } from "lucide-react";
 import Logo from "./Logo";
 import { useLanguage, languages } from "../contexts/LanguageContext";
 
@@ -36,6 +36,7 @@ export default function Navbar() {
   const dashboardLinks = [
     { name: t.seedlingCenter, href: "/dashboard/seedling", icon: <Sprout size={16} /> },
     { name: t.riceMill, href: "/dashboard/mill", icon: <Wheat size={16} /> },
+    { name: "จัดการข้อมูลสีข้าว", href: "https://mekong-ricemill-by-claud.web.app/admin", icon: <Settings size={16} /> },
     { name: "ระบบคุมงบประมาณและบุคลากรโรงสี (ERP Panel)", href: "/dashboard/erp", icon: <Coins size={16} /> },
   ];
 

@@ -377,8 +377,8 @@ export default function Environment() {
                   center={selectedField ? selectedField.coords : [17.126, 104.750]} 
                   zoom={selectedField ? 15 : 14} 
                 />
-                {customerFields.map((field) => (
-                  <React.Fragment key={field.id}>
+                {customerFields.map((field, idx) => (
+                  <React.Fragment key={`${field.id}_${idx}`}>
                     {field.polygon && field.polygon.length > 0 && (
                       <Polygon 
                         positions={field.polygon}
@@ -419,9 +419,9 @@ export default function Environment() {
                 {t.clickToSelect}
               </span>
               <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none">
-                {customerFields.map((f) => (
+                {customerFields.map((f, idx) => (
                   <button
-                    key={f.id}
+                    key={`${f.id}_${idx}`}
                     onClick={() => setSelectedFieldId(f.id)}
                     className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
                       selectedFieldId === f.id 

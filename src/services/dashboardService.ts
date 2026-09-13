@@ -201,8 +201,22 @@ export async function fetchTransplanterCustomerFields(): Promise<CustomerFieldPl
     
     const rows = (parsed.data as string[][]).slice(1);
     
-    const fields: CustomerFieldPlot[] = rows.map((row, idx) => {
-      const plotId = row[0]?.trim() || `PLOT-${String(idx + 1).padStart(3, '0')}`;
+    const fields: CustomerFieldPlot[] = [];
+    const seenPlotIds = new Set<string>();
+
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx];
+      if (!row || row.length === 0 || !row.some(c => c && c.trim())) continue;
+
+      const rawPlotId = row[0]?.trim();
+      const plotId = rawPlotId || `PLOT-${String(idx + 1).padStart(3, '0')}`;
+
+      // Deduplicate rows with duplicate plot ID from sheet to prevent duplicate rendering and key collisions
+      if (seenPlotIds.has(plotId)) {
+        continue;
+      }
+      seenPlotIds.add(plotId);
+
       const customerName = row[1]?.trim() || 'ลูกค้าบริการรถดำนา';
       const locationName = row[2]?.trim() || `แปลงนาของคุณ ${customerName}`;
       const geojsonRaw = row[3];
@@ -246,24 +260,26 @@ export async function fetchTransplanterCustomerFields(): Promise<CustomerFieldPl
       const yieldEstimateKg = (areaSqm / 1600) * averageYieldKgPerRai;
       const yieldEstimateTon = parseFloat((yieldEstimateKg / 1000).toFixed(2));
 
-      return {
-        id: plotId,
-        customerName,
-        locationName,
-        areaRai: parseFloat(totalRai.toFixed(2)),
-        areaNgan,
-        areaWah,
-        areaSqm: Math.round(areaSqm),
-        riceVariety,
-        transplanterModel: 'รถดำนาเดินตาม / นั่งขับ 4-6 แถว',
-        status: 'SRP Low Carbon',
-        averageYieldKgPerRai,
-        yieldEstimateKg: Math.round(yieldEstimateKg),
-        yieldEstimateTon: yieldEstimateTon > 0 ? yieldEstimateTon : 3.5,
-        coords: [!isNaN(lat) ? lat : 17.135, !isNaN(lng) ? lng : 104.748] as [number, number],
-        polygon
-      };
-    }).filter(f => !isNaN(f.coords[0]) && !isNaN(f.coords[1]));
+      if (!isNaN(lat) && !isNaN(lng)) {
+        fields.push({
+          id: plotId,
+          customerName,
+          locationName,
+          areaRai: parseFloat(totalRai.toFixed(2)),
+          areaNgan,
+          areaWah,
+          areaSqm: Math.round(areaSqm),
+          riceVariety,
+          transplanterModel: 'รถดำนาเดินตาม / นั่งขับ 4-6 แถว',
+          status: 'SRP Low Carbon',
+          averageYieldKgPerRai,
+          yieldEstimateKg: Math.round(yieldEstimateKg),
+          yieldEstimateTon: yieldEstimateTon > 0 ? yieldEstimateTon : 3.5,
+          coords: [lat, lng],
+          polygon
+        });
+      }
+    }
 
     return fields.length > 0 ? fields : [];
   } catch (err) {

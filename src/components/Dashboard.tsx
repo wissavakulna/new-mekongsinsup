@@ -6,7 +6,7 @@ import {
 import { MapContainer, TileLayer, Marker, Popup, Polygon, useMap, CircleMarker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { ArrowLeft, Wheat, Sprout, Loader2, Coins, HandCoins, Warehouse, Users, UserPlus, Search, UserCheck, MapPin, Briefcase, Calendar, Scale, Maximize2, Camera, CameraOff, ChevronRight, X, ArrowRight, Lock, ShieldCheck, ExternalLink, Database, LayoutGrid, List, Sparkles, Info, RotateCw, Trash2, PlusCircle, BookOpen, Save, CheckCircle, Printer, FileText, Image as ImageIcon, Smartphone } from "lucide-react";
+import { ArrowLeft, Wheat, Sprout, Loader2, Coins, HandCoins, Warehouse, Users, UserPlus, Search, UserCheck, MapPin, Briefcase, Calendar, Scale, Maximize2, Camera, CameraOff, ChevronRight, X, ArrowRight, Lock, ShieldCheck, ExternalLink, Database, LayoutGrid, List, Sparkles, Info, RotateCw, Trash2, PlusCircle, BookOpen, Save, CheckCircle, Printer, FileText, Image as ImageIcon, Smartphone, Settings } from "lucide-react";
 import { fetchMillData, MillRecord, fetchPointsData, PointsRecord, fetchMemberData, MemberRecord } from "../services/dashboardService";
 import ErpDashboard from "./ErpDashboard";
 import CustomerServiceHistoryReportModal from "./CustomerServiceHistoryReportModal";
@@ -1776,6 +1776,15 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
           >
             <Coins size={16} className="sm:w-[18px] sm:h-[18px]" /> ระบบคุมงบประมาณและบุคลากรโรงสี (ERP Panel)
           </Link>
+          <a 
+            href="https://mekong-ricemill-by-claud.web.app/admin"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="py-4 text-xs sm:text-sm font-bold border-b-2 border-transparent text-amber-700 hover:text-amber-900 transition-all duration-200 no-underline flex items-center gap-1.5 shrink-0 ml-auto"
+            title="ไปที่ระบบจัดการข้อมูลสีข้าว (mekong-ricemill-by-claud.web.app/admin)"
+          >
+            <Settings size={15} className="sm:w-[17px] sm:h-[17px] text-amber-600" /> จัดการข้อมูลสีข้าว <ExternalLink size={12} className="opacity-60" />
+          </a>
         </div>
       </div>
 
@@ -1873,9 +1882,9 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
                 <div className="h-full rounded-xl overflow-hidden z-10 border border-slate-100">
                   <MapContainer center={[17.1791, 104.6641]} zoom={13} style={{ height: '100%', width: '100%' }}>
                     <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                    {SEEDLING_DATA.customerFields.map(field => (
+                    {SEEDLING_DATA.customerFields.map((field, idx) => (
                       <Polygon 
-                        key={field.id} 
+                        key={`${field.id}_${idx}`} 
                         positions={field.polygon} 
                         pathOptions={{ color: '#2E7D32', fillColor: '#2E7D32', fillOpacity: 0.3 }}
                       >
@@ -1905,13 +1914,26 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
                   <h2 className="text-lg xs:text-xl sm:text-2xl font-bold text-slate-900 leading-tight">โรงสีข้าวแม่โขงพืชผล (Mill Management)</h2>
                   <span className="bg-orange-100 text-orange-700 text-[10px] sm:text-xs px-2 py-0.5 sm:py-1 rounded-full font-bold whitespace-nowrap shrink-0">LIVE DATABASE</span>
                 </div>
-                <button
-                  onClick={() => setShowMillDataTableModal(true)}
-                  className="flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all duration-200 transform active:scale-95 cursor-pointer self-start sm:self-auto"
-                >
-                  <Database className="w-3.5 h-3.5 text-orange-100 animate-pulse" />
-                  <span>📋 เปิดดูตารางข้อมูลการสีข้าวรายวัน</span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setShowMillDataTableModal(true)}
+                    className="flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all duration-200 transform active:scale-95 cursor-pointer self-start sm:self-auto"
+                  >
+                    <Database className="w-3.5 h-3.5 text-orange-100 animate-pulse" />
+                    <span>📋 เปิดดูตารางข้อมูลการสีข้าวรายวัน</span>
+                  </button>
+                  <a
+                    href="https://mekong-ricemill-by-claud.web.app/admin"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-slate-900 to-slate-800 hover:from-black hover:to-slate-900 text-white rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all duration-200 transform active:scale-95 cursor-pointer self-start sm:self-auto no-underline border border-slate-700"
+                    title="ไปที่ระบบจัดการข้อมูลสีข้าว (mekong-ricemill-by-claud.web.app/admin)"
+                  >
+                    <Settings className="w-3.5 h-3.5 text-amber-400" />
+                    <span>⚙️ จัดการข้อมูลสีข้าว</span>
+                    <ExternalLink className="w-3 h-3 text-slate-400" />
+                  </a>
+                </div>
               </div>
               
               <div className="flex flex-wrap items-center gap-2 bg-white border border-slate-200 p-1.5 sm:p-2 rounded-xl shadow-sm self-start md:self-auto w-full md:w-auto justify-between md:justify-start">
@@ -2432,11 +2454,11 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                       />
-                      {memberPins.map(pin => {
+                      {memberPins.map((pin, idx) => {
                         const isMatched = searchedMemberResult && normalizeThaiName(searchedMemberResult.name) === normalizeThaiName(pin.name);
                         return (
                           <CircleMarker
-                            key={pin.id}
+                            key={`${pin.id}_${idx}`}
                             center={pin.pos}
                             radius={isMatched ? 10 : 6}
                             pathOptions={{
@@ -4467,6 +4489,18 @@ export default function Dashboard({ defaultValue = 'seedling' }: { defaultValue?
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <a
+                    href="https://mekong-ricemill-by-claud.web.app/admin"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white border border-slate-700 rounded-xl text-xs font-black transition-all shadow-xs active:scale-95 cursor-pointer no-underline"
+                    title="ไปที่ระบบจัดการข้อมูลสีข้าว (mekong-ricemill-by-claud.web.app/admin)"
+                  >
+                    <Settings className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden sm:inline">จัดการข้อมูลสีข้าว</span>
+                    <span className="sm:hidden">จัดการสีข้าว</span>
+                    <ExternalLink className="w-3 h-3 text-slate-400" />
+                  </a>
                   <button
                     type="button"
                     onClick={handleRefreshData}
